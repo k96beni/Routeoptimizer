@@ -381,3 +381,79 @@ def create_route_map(team_routes: List[Any], config: Dict) -> str:
     html_string = m._repr_html_()
     
     return html_string
+
+
+def create_simple_overview_map(team_routes: List[Any]) -> str:
+    """
+    Skapar en enklare översiktskarta utan alla detaljer
+    Används som fallback om huvudkartan misslyckas
+    
+    Args:
+        team_routes: Lista med TeamRoute-objekt
+    
+    Returns:
+        HTML som sträng
+    """
+    
+    if not team_routes:
+        return "<html><body><h3>Ingen data att visa</h3></body></html>"
+    
+    # Samla koordinater
+    all_lats = []
+    all_lons = []
+    
+    for route in team_routes:
+        team = safe_get_attr(route, 'team', None)
+        if team:
+            home_base = safe_get_attr(team, 'home_base', None)
+            if home_base and len(home_base) >= 2:
+                all_lats.append(home_base[0])
+                all_lons.append(home_base[1])
+        
+        segments = safe_get_attr(route, 'segments', [])
+        for seg in segments:
+            location = safe_get_attr(seg, 'location', None)
+            if location:
+                lat = safe_get_attr(location, 'latitude', None)
+                lon = safe_get_attr(location, 'longitude', None)
+                if lat and lon:
+                    all_lats.append(lat)
+                    all_lons.append(lon)
+    
+    if not all_lats:
+        return "<html><body><h3>Inga koordinater hittades</h3></body></html>"
+    
+    # Skapa enkel karta
+    center_lat = np.mean(all_lats)
+    center_lon = np.mean(all_lons)
+    
+    m = folium.Map(
+        location=[center_lat, center_lon],
+        zoom_start=6,
+        tiles='OpenStreetMap'
+    )
+    
+    colors = create_color_palette(len(team_routes))
+    
+    # Rita enkla markers utan detaljer
+    for idx, route in enumerate(team_routes):
+        segments = safe_get_attr(route, 'segments', [])
+        
+        for seg in segments:
+            location = safe_get_attr(seg, 'location', None)
+            if location:
+                lat = safe_get_attr(location, 'latitude', None)
+                lon = safe_get_attr(location, 'longitude', None)
+                customer = safe_get_attr(location, 'customer', 'Plats')
+                
+                if lat and lon:
+                    folium.CircleMarker(
+                        location=[lat, lon],
+                        radius=5,
+                        color=colors[idx],
+                        fill=True,
+                        fillOpacity=0.7,
+                        tooltip=customer
+                    ).add_to(m)
+    
+    return m._repr_html_()
