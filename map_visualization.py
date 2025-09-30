@@ -11,24 +11,24 @@ from optimizer import TeamRoute
 
 
 def create_color_palette(n: int) -> List[str]:
-    """Skapar en palett med distinkta färger"""
+    """Skapar en palett med distinkta, ljusa färger för bra synlighet"""
     
     colors = [
-        '#e74c3c',  # Röd
-        '#3498db',  # Blå
-        '#2ecc71',  # Grön
-        '#f39c12',  # Orange
-        '#9b59b6',  # Lila
-        '#1abc9c',  # Turkos
-        '#e67e22',  # Mörkorange
-        '#34495e',  # Mörkblå
-        '#f1c40f',  # Gul
-        '#95a5a6',  # Grå
-        '#c0392b',  # Mörkröd
-        '#27ae60',  # Mörkgrön
-        '#2980b9',  # Marinblå
-        '#8e44ad',  # Mörklila
-        '#d35400'   # Mörkare orange
+        '#FF0000',  # Röd
+        '#0000FF',  # Blå
+        '#00CC00',  # Grön
+        '#FF6600',  # Orange
+        '#9933FF',  # Lila
+        '#00CCCC',  # Cyan
+        '#FF0099',  # Magenta
+        '#006600',  # Mörkgrön
+        '#FFCC00',  # Gul
+        '#660099',  # Mörklila
+        '#CC0000',  # Mörkröd
+        '#0066CC',  # Marinblå
+        '#FF3399',  # Rosa
+        '#009900',  # Mellangrön
+        '#CC6600'   # Brun
     ]
     
     return colors[:n]
@@ -61,12 +61,13 @@ def create_route_map(team_routes: List[TeamRoute], config: Dict) -> str:
     m = folium.Map(
         location=[center_lat, center_lon],
         zoom_start=6,
-        tiles='OpenStreetMap'
+        tiles='OpenStreetMap'  # Ljust kartlager som standard
     )
     
     # Lägg till alternativa kartlager
     folium.TileLayer('CartoDB positron', name='Ljus karta').add_to(m)
     folium.TileLayer('CartoDB dark_matter', name='Mörk karta').add_to(m)
+    folium.TileLayer('Esri WorldImagery', name='Satellit', attr='Esri').add_to(m)
     
     # Färger för teams
     colors = create_color_palette(len(team_routes))
@@ -153,12 +154,12 @@ def create_route_map(team_routes: List[TeamRoute], config: Dict) -> str:
             # Lägg till numrerad circle marker
             folium.CircleMarker(
                 location=[segment.location.latitude, segment.location.longitude],
-                radius=15,
+                radius=18,  # Ökad från 15
                 color=color,
                 fill=True,
                 fillColor=color,
-                fillOpacity=0.7,
-                weight=2,
+                fillOpacity=0.8,  # Ökad från 0.7
+                weight=3,  # Ökad från 2
                 popup=popup_text,
                 tooltip=f"#{i+1}"
             ).add_to(fg)
@@ -167,7 +168,7 @@ def create_route_map(team_routes: List[TeamRoute], config: Dict) -> str:
             folium.Marker(
                 location=[segment.location.latitude, segment.location.longitude],
                 icon=folium.DivIcon(
-                    html=f'<div style="font-size: 10px; font-weight: bold; color: white; text-align: center; line-height: 15px;">{i+1}</div>'
+                    html=f'<div style="font-size: 12px; font-weight: bold; color: white; text-align: center; line-height: 18px;">{i+1}</div>'
                 )
             ).add_to(fg)
         
@@ -194,19 +195,19 @@ def create_route_map(team_routes: List[TeamRoute], config: Dict) -> str:
             folium.PolyLine(
                 coordinates,
                 color=color,
-                weight=3,
-                opacity=0.7,
+                weight=4,  # Ökad från 3 till 4 för bättre synlighet
+                opacity=0.9,  # Ökad från 0.7 till 0.9
                 popup=team_name,
                 tooltip=f"{team_name}: {route.total_distance:.0f} km"
             ).add_to(fg)
             
             # Lägg till pilar längs rutten
             plugins.PolyLineTextPath(
-                folium.PolyLine(coordinates, color=color, weight=3, opacity=0),
+                folium.PolyLine(coordinates, color=color, weight=4, opacity=0),
                 '►',
                 repeat=True,
                 offset=10,
-                attributes={'fill': color, 'font-size': '18'}
+                attributes={'fill': color, 'font-size': '20', 'font-weight': 'bold'}  # Större pilar
             ).add_to(fg)
         
         # Lägg till feature group till kartan
