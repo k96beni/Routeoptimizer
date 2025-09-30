@@ -1,673 +1,459 @@
 """
-Route Optimizer Engine
-Hanterar ruttoptimering, kostnadsberäkningar och schemaläggning
+Map Visualization Module - Med Hotellnatt-visualisering
+Skapar interaktiva kartor med Folium
 """
 
-import pandas as pd
+import folium
+from folium import plugins
+from typing import List, Dict, Any
 import numpy as np
-from datetime import datetime, timedelta
-from typing import Dict, List, Tuple, Optional
-from dataclasses import dataclass
-from scipy.spatial.distance import cdist
-import warnings
-warnings.filterwarnings('ignore')
 
 
-@dataclass
-class Location:
-    """Representerar en plats att besöka"""
-    id: str
-    customer: str
-    latitude: float
-    longitude: float
-    units: int
-    filter_value: float
-    work_time: float  # timmar
+def create_color_palette(n: int) -> List[str]:
+    """Skapar en palett med distinkta färger för teams"""
     
-
-@dataclass
-class Team:
-    """Representerar ett team"""
-    id: int
-    home_base: Tuple[float, float]  # (lat, lon)
-    home_name: str
+    colors = [
+        '#e74c3c',  # Röd
+        '#3498db',  # Blå
+        '#2ecc71',  # Grön
+        '#f39c12',  # Orange
+        '#9b59b6',  # Lila
+        '#1abc9c',  # Turkos
+        '#e67e22',  # Mörkorange
+        '#34495e',  # Mörkblå
+        '#f1c40f',  # Gul
+        '#95a5a6',  # Grå
+        '#c0392b',  # Mörkröd
+        '#27ae60',  # Mörkgrön
+        '#2980b9',  # Marinblå
+        '#8e44ad',  # Mörklila
+        '#d35400'   # Mörkare orange
+    ]
     
-
-@dataclass
-class RouteSegment:
-    """Ett segment i en rutt"""
-    location: Location
-    arrival_time: datetime
-    departure_time: datetime
-    drive_time: float  # timmar
-    drive_distance: float  # km
-    work_time: float  # timmar
-    is_hotel_night: bool
-    
-
-@dataclass
-class TeamRoute:
-    """Komplett rutt för ett team"""
-    team: Team
-    segments: List[RouteSegment]
-    total_days: int
-    total_distance: float
-    total_work_time: float
-    total_drive_time: float
-    hotel_nights: int
-    total_cost: float
+    return colors[:min(n, len(colors))]
 
 
-class RouteOptimizer:
-    """Huvudklass för ruttoptimering"""
-    
-    def __init__(self, config: Dict):
-        self.config = config
-        self.locations: List[Location] = []
-        self.teams: List[Team] = []
-        
-    def load_data(self, df: pd.DataFrame, profile: Dict) -> pd.DataFrame:
-        """Laddar och bearbetar data enligt profil"""
-        
-        # Kopiera för att inte modifiera original
-        data = df.copy()
-        
-        # Mappa kolumnnamn
-        col_map = profile['data_columns']
-        
-        # Validera att nödvändiga kolumner finns
-        required_cols = list(col_map.values())
-        missing_cols = [col for col in required_cols if col not in data.columns]
-        
-        if missing_cols:
-            raise ValueError(f"Saknade kolumner: {missing_cols}")
-        
-        # Byt namn för enhetlighet
-        data = data.rename(columns={
-            col_map['customer']: 'customer',
-            col_map['latitude']: 'latitude',
-            col_map['longitude']: 'longitude',
-            col_map['units']: 'units',
-            col_map['filter_value']: 'filter_value'
-        })
-        
-        # Konvertera till numeriska värden
-        data['latitude'] = pd.to_numeric(data['latitude'], errors='coerce')
-        data['longitude'] = pd.to_numeric(data['longitude'], errors='coerce')
-        data['filter_value'] = pd.to_numeric(data['filter_value'], errors='coerce')
-        
-        # Ta bort rader med saknade koordinater
-        data = data.dropna(subset=['latitude', 'longitude'])
-        
-        # Applicera filter
-        if profile['filter_type'] == 'sum':
-            # Summera per kund (för migration)
-            customer_sums = data.groupby('customer')['filter_value'].sum()
-            valid_customers = customer_sums[customer_sums >= self.config.get('min_filter_value', 0)].index
-            data = data[data['customer'].isin(valid_customers)]
-        else:
-            # Filtrera på värde (för service)
-            threshold = self.config.get('priority_threshold', 1)
-            data = data[data['filter_value'] <= threshold]
-        
-        # Exkludera specifika kunder
-        exclude_customers = self.config.get('exclude_customers', [])
-        if exclude_customers:
-            data = data[~data['customer'].isin(exclude_customers)]
-        
-        return data
-    
-    def create_locations(self, data: pd.DataFrame, profile: Dict) -> List[Location]:
-        """Skapar Location-objekt från data"""
-        
-        locations = []
-        
-        for idx, row in data.iterrows():
-            # Beräkna arbetstid
-            units = row.get('units', 1)
-            if isinstance(units, str):
-                units = 1  # Om units är text (t.ex. servicetyp), sätt till 1
-            else:
-                try:
-                    units = int(units)
-                except:
-                    units = 1
-            
-            work_time = (
-                self.config['setup_time'] / 60 +  # Setup i timmar
-                units * self.config['work_time_per_unit'] / 60  # Arbete per enhet i timmar
-            )
-            
-            location = Location(
-                id=f"LOC_{idx}",
-                customer=row['customer'],
-                latitude=row['latitude'],
-                longitude=row['longitude'],
-                units=units,
-                filter_value=row['filter_value'],
-                work_time=work_time
-            )
-            
-            locations.append(location)
-        
-        self.locations = locations
-        return locations
-    
-    def calculate_distance(self, lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-        """
-        Beräknar avstånd mellan två koordinater med Haversine-formeln
-        Returnerar avstånd i km
-        """
-        R = 6371  # Jordens radie i km
-        
-        lat1_rad = np.radians(lat1)
-        lat2_rad = np.radians(lat2)
-        dlat = np.radians(lat2 - lat1)
-        dlon = np.radians(lon2 - lon1)
-        
-        a = np.sin(dlat/2)**2 + np.cos(lat1_rad) * np.cos(lat2_rad) * np.sin(dlon/2)**2
-        c = 2 * np.arctan2(np.sqrt(a), np.sqrt(1-a))
-        
-        distance = R * c
-        
-        # Applicera vägfaktor
-        road_factor = self.config.get('road_factor', 1.3)
-        
-        return distance * road_factor
-    
-    def filter_by_max_distance(self, home_base: Tuple[float, float]) -> List[Location]:
-        """Filtrerar platser baserat på max avstånd från hemmabas"""
-        
-        max_distance = self.config.get('max_distance', 500)
-        
-        valid_locations = []
-        
-        for loc in self.locations:
-            distance = self.calculate_distance(
-                home_base[0], home_base[1],
-                loc.latitude, loc.longitude
-            )
-            
-            if distance <= max_distance:
-                valid_locations.append(loc)
-        
-        return valid_locations
-    
-    def create_distance_matrix(self, locations: List[Location]) -> np.ndarray:
-        """Skapar avståndsmatris för alla platser"""
-        
-        n = len(locations)
-        matrix = np.zeros((n, n))
-        
-        for i in range(n):
-            for j in range(i+1, n):
-                dist = self.calculate_distance(
-                    locations[i].latitude, locations[i].longitude,
-                    locations[j].latitude, locations[j].longitude
-                )
-                matrix[i][j] = dist
-                matrix[j][i] = dist
-        
-        return matrix
-    
-    def nearest_neighbor_route(self, locations: List[Location], 
-                               start_location: Location) -> List[Location]:
-        """
-        Enkel nearest neighbor algoritm för ruttplanering
-        Börjar från start_location och väljer alltid närmaste obesökta plats
-        """
-        
-        if not locations:
-            return []
-        
-        unvisited = locations.copy()
-        route = [start_location]
-        
-        # Ta bort start från unvisited om den finns där
-        if start_location in unvisited:
-            unvisited.remove(start_location)
-        
-        current = start_location
-        
-        while unvisited:
-            # Hitta närmaste obesökta plats
-            nearest = min(unvisited, key=lambda loc: self.calculate_distance(
-                current.latitude, current.longitude,
-                loc.latitude, loc.longitude
-            ))
-            
-            route.append(nearest)
-            unvisited.remove(nearest)
-            current = nearest
-        
-        return route
-    
-    def optimize_route_2opt(self, route: List[Location], max_iterations: int = 100) -> List[Location]:
-        """
-        2-opt optimering för att förbättra rutt
-        Försöker byta ordning på segment för att minska total sträcka
-        """
-        
-        if len(route) < 4:
-            return route
-        
-        best_route = route.copy()
-        improved = True
-        iteration = 0
-        
-        while improved and iteration < max_iterations:
-            improved = False
-            iteration += 1
-            
-            for i in range(1, len(best_route) - 2):
-                for j in range(i + 1, len(best_route)):
-                    if j - i == 1:
-                        continue
-                    
-                    # Beräkna nuvarande kostnad
-                    current_cost = (
-                        self.calculate_distance(
-                            best_route[i-1].latitude, best_route[i-1].longitude,
-                            best_route[i].latitude, best_route[i].longitude
-                        ) +
-                        self.calculate_distance(
-                            best_route[j-1].latitude, best_route[j-1].longitude,
-                            best_route[j].latitude, best_route[j].longitude
-                        )
-                    )
-                    
-                    # Beräkna ny kostnad efter byte
-                    new_cost = (
-                        self.calculate_distance(
-                            best_route[i-1].latitude, best_route[i-1].longitude,
-                            best_route[j-1].latitude, best_route[j-1].longitude
-                        ) +
-                        self.calculate_distance(
-                            best_route[i].latitude, best_route[i].longitude,
-                            best_route[j].latitude, best_route[j].longitude
-                        )
-                    )
-                    
-                    if new_cost < current_cost:
-                        # Vänd segmentet
-                        best_route[i:j] = reversed(best_route[i:j])
-                        improved = True
-        
-        return best_route
-    
-    def calculate_route_segments(self, route: List[Location], 
-                                 team: Team) -> List[RouteSegment]:
-        """Beräknar detaljerade segment för en rutt med tider och kostnader"""
-        
-        segments = []
-        
-        if not route:
-            return segments
-        
-        # Starta från hemmabas
-        current_time = datetime.now().replace(hour=7, minute=0, second=0, microsecond=0)
-        current_location = (team.home_base[0], team.home_base[1])
-        
-        daily_drive_time = 0
-        daily_work_time = 0
-        daily_distance = 0
-        
-        work_hours = self.config.get('work_hours', 8)
-        max_drive_hours = self.config.get('max_drive_hours', 5)
-        max_daily_distance = self.config.get('max_daily_distance', 400)
-        
-        for i, location in enumerate(route):
-            # Beräkna körsträcka och tid
-            distance = self.calculate_distance(
-                current_location[0], current_location[1],
-                location.latitude, location.longitude
-            )
-            
-            drive_time = distance / 80  # Antag 80 km/h genomsnittshastighet
-            
-            # Lägg till navigationstid
-            nav_time = self.config.get('navigation_time', 3) / 60
-            drive_time += nav_time
-            
-            # Lägg till pauser var 2:e timme
-            pause_time = self.config.get('pause_time', 15) / 60
-            if daily_drive_time + drive_time > 2:
-                drive_time += pause_time
-            
-            # Kolla om vi behöver hotell
-            needs_hotel = False
-            
-            if (daily_drive_time + drive_time > max_drive_hours or
-                daily_work_time + location.work_time > work_hours or
-                daily_distance + distance > max_daily_distance):
-                
-                # Hotellnatt - börja ny dag
-                needs_hotel = True
-                current_time = current_time.replace(hour=7, minute=0) + timedelta(days=1)
-                daily_drive_time = 0
-                daily_work_time = 0
-                daily_distance = 0
-            
-            # Uppdatera dagliga värden
-            daily_drive_time += drive_time
-            daily_distance += distance
-            
-            # Ankomst
-            arrival_time = current_time + timedelta(hours=drive_time)
-            
-            # Arbete
-            departure_time = arrival_time + timedelta(hours=location.work_time)
-            daily_work_time += location.work_time
-            
-            # Skapa segment
-            segment = RouteSegment(
-                location=location,
-                arrival_time=arrival_time,
-                departure_time=departure_time,
-                drive_time=drive_time,
-                drive_distance=distance,
-                work_time=location.work_time,
-                is_hotel_night=needs_hotel
-            )
-            
-            segments.append(segment)
-            
-            # Uppdatera för nästa iteration
-            current_time = departure_time
-            current_location = (location.latitude, location.longitude)
-        
-        return segments
-    
-    def calculate_team_costs(self, route: TeamRoute) -> Dict:
-        """Beräknar detaljerade kostnader för ett team"""
-        
-        # Hämta kostnadsparametrar
-        labor_cost_per_hour = self.config.get('labor_cost', 500)
-        team_size = self.config.get('team_size', 2)
-        vehicle_cost_per_km = self.config.get('vehicle_cost', 2.5)
-        hotel_cost_per_night = self.config.get('hotel_cost', 2000)
-        
-        # Beräkna kostnader
-        labor_cost = route.total_work_time * labor_cost_per_hour * team_size
-        drive_labor_cost = route.total_drive_time * labor_cost_per_hour * team_size
-        vehicle_cost = route.total_distance * vehicle_cost_per_km
-        hotel_cost = route.hotel_nights * hotel_cost_per_night * team_size
-        
-        total_cost = labor_cost + drive_labor_cost + vehicle_cost + hotel_cost
-        
-        return {
-            'labor_cost': labor_cost,
-            'drive_labor_cost': drive_labor_cost,
-            'vehicle_cost': vehicle_cost,
-            'hotel_cost': hotel_cost,
-            'total_cost': total_cost
-        }
-    
-    def optimize_team_count(self, min_teams: int = 5, max_teams: int = 8) -> Dict:
-        """
-        Testar olika antal team och väljer mest kostnadseffektiv konfiguration
-        """
-        
-        results = {}
-        
-        for num_teams in range(min_teams, max_teams + 1):
-            # Skapa teams
-            teams = self.create_teams(num_teams)
-            
-            # Fördela platser till teams
-            team_routes = self.assign_locations_to_teams(teams)
-            
-            # Beräkna total kostnad
-            total_cost = sum(route.total_cost for route in team_routes)
-            total_days = max(route.total_days for route in team_routes)
-            
-            results[num_teams] = {
-                'teams': team_routes,
-                'total_cost': total_cost,
-                'total_days': total_days,
-                'cost_per_location': total_cost / len(self.locations) if self.locations else 0
-            }
-        
-        # Hitta bästa konfiguration (lägst kostnad)
-        best_config = min(results.items(), key=lambda x: x[1]['total_cost'])
-        
-        return {
-            'optimal_teams': best_config[0],
-            'results': results,
-            'best_result': best_config[1]
-        }
-    
-    def create_teams(self, num_teams: int) -> List[Team]:
-        """Skapar teams med olika hemmabaser"""
-        
-        # Svenska städer som hemmabaser
-        # HEMMABASER - Sveriges 30 största städer
-        # Välj fritt från listan genom att ändra num_teams
-        home_bases = [
-            # Top 10 - Största städerna
-            (59.3293, 18.0686, "Stockholm"),
-            (57.7089, 11.9746, "Göteborg"),
-            (55.6050, 13.0038, "Malmö"),
-            (59.8586, 17.6389, "Uppsala"),
-            (59.2753, 15.2134, "Örebro"),
-            (58.4108, 15.6214, "Linköping"),
-            (56.1612, 15.5869, "Växjö"),
-            (56.0465, 12.6945, "Helsingborg"),
-            (62.3908, 17.3069, "Sundsvall"),
-            (58.5877, 16.1924, "Norrköping"),
-            
-            # 11-20
-            (57.7826, 14.1618, "Jönköping"),
-            (63.8258, 20.2630, "Umeå"),
-            (60.6749, 17.1413, "Gävle"),
-            (59.6099, 16.5448, "Västerås"),
-            (59.6749, 14.8702, "Karlstad"),
-            (59.0392, 12.5045, "Borås"),
-            (59.3793, 13.5039, "Eskilstuna"),
-            (65.5848, 22.1547, "Luleå"),
-            (56.8777, 14.8091, "Kalmar"),
-            (55.9929, 14.1579, "Kristianstad"),
-            
-            # 21-30
-            (63.1792, 14.6357, "Östersund"),
-            (58.5947, 13.5090, "Skövde"),
-            (57.1063, 12.2580, "Halmstad"),
-            (60.1282, 18.6435, "Norrtälje"),
-            (59.2741, 18.0825, "Södertälje"),
-            (58.7527, 17.0085, "Enköping"),
-            (62.6308, 17.9411, "Härnösand"),
-            (56.0371, 14.8533, "Karlskrona"),
-            (67.8558, 20.2253, "Kiruna"),
-            (58.2544, 12.3717, "Trollhättan"),
-        ]
-        
-        # Använd de första num_teams städerna från listan
-        teams = []
-        
-        for i in range(min(num_teams, len(home_bases))):
-            team = Team(
-                id=i + 1,
-                home_base=(home_bases[i][0], home_bases[i][1]),
-                home_name=home_bases[i][2]
-            )
-            teams.append(team)
-        
-        self.teams = teams
-        return teams
-    
-    def assign_locations_to_teams(self, teams: List[Team]) -> List[TeamRoute]:
-        """
-        Fördelar platser till teams baserat på NÄRMASTE TEAM
-        Detta säkerställer att varje plats besöks av sitt närmaste team
-        """
-        
-        team_routes = []
-        
-        # Skapa en dictionary för att hålla team-locations
-        team_assignments = {team.id: [] for team in teams}
-        
-        print("\n" + "="*60)
-        print("TILLDELAR PLATSER TILL NÄRMASTE TEAM")
-        print("="*60)
-        
-        # STEG 1: Tilldela varje plats till närmaste team
-        locations_outside_range = 0
-        
-        for location in self.locations:
-            # Hitta närmaste team inom max_distance
-            nearest_team = None
-            min_distance = float('inf')
-            
-            for team in teams:
-                distance = self.calculate_distance(
-                    team.home_base[0], team.home_base[1],
-                    location.latitude, location.longitude
-                )
-                
-                # Kontrollera max avstånd
-                max_dist = self.config.get('max_distance', 500)
-                if distance <= max_dist:
-                    if distance < min_distance:
-                        min_distance = distance
-                        nearest_team = team
-            
-            # Om ingen inom räckvidd, hitta absolut närmaste (relaxa regeln lite)
-            if not nearest_team:
-                locations_outside_range += 1
-                nearest_team = min(teams, key=lambda t: self.calculate_distance(
-                    t.home_base[0], t.home_base[1],
-                    location.latitude, location.longitude
-                ))
-                min_distance = self.calculate_distance(
-                    nearest_team.home_base[0], nearest_team.home_base[1],
-                    location.latitude, location.longitude
-                )
-            
-            # Tilldela platsen till närmaste team
-            team_assignments[nearest_team.id].append(location)
-        
-        if locations_outside_range > 0:
-            print(f"⚠️ {locations_outside_range} platser utanför max_distance - tilldelade ändå till närmaste team")
-        
-        print(f"\nFördelning av {len(self.locations)} platser:")
-        for team in teams:
-            count = len(team_assignments[team.id])
-            if count > 0:
-                print(f"  {team.home_name:20s}: {count:3d} platser")
-        print("="*60 + "\n")
-        
-        # STEG 2: Optimera rutt för varje team
-        for team in teams:
-            team_locations = team_assignments[team.id]
-            
-            if not team_locations:
-                continue
-            
-            # Sortera efter deadline om aktiverat
-            if self.config.get('use_deadlines', False):
-                sort_by = self.config.get('sort_by', 'both')
-                team_locations = self.sort_locations_by_deadline(team_locations, sort_by)
-            
-            # STEG 3: Bygg rutt med nearest neighbor från hemmabasen
-            route = []
-            remaining = team_locations.copy()
-            current_lat, current_lon = team.home_base
-            
-            while remaining:
-                # Hitta närmaste obesökta plats
-                nearest = min(remaining, key=lambda loc: self.calculate_distance(
-                    current_lat, current_lon,
-                    loc.latitude, loc.longitude
-                ))
-                
-                route.append(nearest)
-                remaining.remove(nearest)
-                current_lat, current_lon = nearest.latitude, nearest.longitude
-            
-            # STEG 4: Förbättra med 2-opt för mellanstora rutter
-            if len(route) > 3 and len(route) < 100:
-                route = self.optimize_route_2opt(route, max_iterations=50)
-            
-            # STEG 5: Beräkna segment med tider
-            segments = self.calculate_route_segments(route, team)
-            
-            if not segments:
-                continue
-            
-            # Beräkna totaler
-            total_distance = sum(seg.drive_distance for seg in segments)
-            total_work_time = sum(seg.work_time for seg in segments)
-            total_drive_time = sum(seg.drive_time for seg in segments)
-            hotel_nights = sum(1 for seg in segments if seg.is_hotel_night)
-            total_days = (segments[-1].departure_time - segments[0].arrival_time).days + 1 if segments else 0
-            
-            # Skapa TeamRoute
-            team_route = TeamRoute(
-                team=team,
-                segments=segments,
-                total_days=total_days,
-                total_distance=total_distance,
-                total_work_time=total_work_time,
-                total_drive_time=total_drive_time,
-                hotel_nights=hotel_nights,
-                total_cost=0  # Beräknas nedan
-            )
-            
-            # Beräkna kostnader
-            costs = self.calculate_team_costs(team_route)
-            team_route.total_cost = costs['total_cost']
-            
-            team_routes.append(team_route)
-        
-        return team_routes
+def safe_get_attr(obj: Any, attr: str, default: Any = None) -> Any:
+    """Safely get attribute from object"""
+    try:
+        return getattr(obj, attr, default)
+    except:
+        return default
 
 
-def run_optimization(df: pd.DataFrame, config: Dict, profile: Dict) -> Dict:
+def create_route_map(team_routes: List[Any], config: Dict) -> str:
     """
-    Huvudfunktion för att köra optimering
+    Skapar interaktiv Folium-karta med alla team-rutter
+    INKLUDERAR HOTELLNATT-VISUALISERING
+    
+    Färgkodning:
+    - 🏠 Svart marker = Hemmabas
+    - ⚑ Röd marker = Hotellnatt
+    - ✓ Grön cirkel = Hemresa (sparar pengar)
+    - ⚫ Färgad cirkel = Normal arbetsplats
+    - --- Streckad linje = Hemresa-rutt
     
     Args:
-        df: Data med platser
-        config: Konfiguration från användaren
-        profile: Profil (migration eller service)
+        team_routes: Lista med TeamRoute-objekt
+        config: Konfiguration
     
     Returns:
-        Dictionary med resultat
+        HTML som sträng
     """
     
-    optimizer = RouteOptimizer(config)
+    # Validera input
+    if not team_routes or len(team_routes) == 0:
+        return """
+        <html>
+        <body style='padding: 20px; font-family: Arial;'>
+            <h3>⚠️ Ingen ruttdata att visa</h3>
+            <p>Kör optimeringen först för att se kartan.</p>
+        </body>
+        </html>
+        """
     
-    # Ladda och bearbeta data
-    processed_data = optimizer.load_data(df, profile)
+    # Samla alla koordinater för centrum
+    all_lats = []
+    all_lons = []
     
-    if len(processed_data) == 0:
-        return {
-            'success': False,
-            'error': 'Ingen data kvar efter filtrering'
-        }
+    for route in team_routes:
+        team = safe_get_attr(route, 'team', None)
+        if team:
+            home_base = safe_get_attr(team, 'home_base', None)
+            if home_base and len(home_base) >= 2:
+                all_lats.append(home_base[0])
+                all_lons.append(home_base[1])
+        
+        segments = safe_get_attr(route, 'segments', [])
+        for seg in segments:
+            location = safe_get_attr(seg, 'location', None)
+            if location:
+                lat = safe_get_attr(location, 'latitude', None)
+                lon = safe_get_attr(location, 'longitude', None)
+                if lat is not None and lon is not None:
+                    all_lats.append(float(lat))
+                    all_lons.append(float(lon))
     
-    # Skapa platser
-    locations = optimizer.create_locations(processed_data, profile)
+    if not all_lats or not all_lons:
+        return """
+        <html>
+        <body style='padding: 20px; font-family: Arial;'>
+            <h3>⚠️ Inga koordinater hittades</h3>
+            <p>Kontrollera att din data innehåller giltiga koordinater.</p>
+        </body>
+        </html>
+        """
     
-    # Optimera antal team
-    min_teams = config.get('min_teams', 5)
-    max_teams = config.get('max_teams', 8)
+    # Beräkna centrum
+    center_lat = np.mean(all_lats)
+    center_lon = np.mean(all_lons)
     
-    optimization_result = optimizer.optimize_team_count(min_teams, max_teams)
+    # Skapa karta
+    m = folium.Map(
+        location=[center_lat, center_lon],
+        zoom_start=6,
+        tiles='OpenStreetMap'
+    )
     
-    # Sammanställ resultat
-    best_result = optimization_result['best_result']
+    # Lägg till alternativt kartlager
+    folium.TileLayer('CartoDB positron', name='Ljus karta').add_to(m)
     
-    result = {
-        'success': True,
-        'optimal_teams': optimization_result['optimal_teams'],
-        'team_routes': best_result['teams'],
-        'total_cost': best_result['total_cost'],
-        'total_days': best_result['total_days'],
-        'total_locations': len(locations),
-        'cost_per_location': best_result['cost_per_location'],
-        'all_team_results': optimization_result['results'],
-        'filtered_data': processed_data
-    }
+    # Färger för teams
+    colors = create_color_palette(len(team_routes))
     
-    return result
+    # Statistik
+    total_hotels = 0
+    total_home_returns = 0
+    total_normal_stops = 0
+    
+    # Rita varje team
+    for team_idx, route in enumerate(team_routes):
+        color = colors[team_idx]
+        
+        # Hämta team info
+        team = safe_get_attr(route, 'team', None)
+        team_id = safe_get_attr(team, 'id', team_idx + 1) if team else team_idx + 1
+        team_name = safe_get_attr(team, 'home_name', f'Team {team_id}') if team else f'Team {team_id}'
+        home_base = safe_get_attr(team, 'home_base', None) if team else None
+        
+        segments = safe_get_attr(route, 'segments', [])
+        
+        if not segments:
+            continue
+        
+        # Skapa feature group för detta team
+        fg = folium.FeatureGroup(name=f"Team {team_id} - {team_name}", show=True)
+        
+        # Rita hemmabas
+        if home_base and len(home_base) >= 2:
+            folium.Marker(
+                location=[home_base[0], home_base[1]],
+                popup=f"<b>🏠 {team_name}</b><br>Hemmabas<br>Team {team_id}",
+                tooltip=f"🏠 Hemmabas: {team_name}",
+                icon=folium.Icon(color='black', icon='home', prefix='fa')
+            ).add_to(fg)
+        
+        # Håll koll på föregående plats för att rita linjer
+        prev_location = home_base
+        
+        # Rita alla segment
+        for seg_idx, segment in enumerate(segments):
+            location = safe_get_attr(segment, 'location', None)
+            if not location:
+                continue
+            
+            lat = safe_get_attr(location, 'latitude', None)
+            lon = safe_get_attr(location, 'longitude', None)
+            customer = safe_get_attr(location, 'customer', 'Okänd kund')
+            
+            if lat is None or lon is None:
+                continue
+            
+            # Hämta hotellnatt-info
+            is_hotel = safe_get_attr(segment, 'is_hotel_night', False)
+            hotel_reason = safe_get_attr(segment, 'hotel_reason', '')
+            day = safe_get_attr(segment, 'day', seg_idx + 1)
+            work_time = safe_get_attr(segment, 'work_time', 0)
+            drive_distance = safe_get_attr(segment, 'drive_distance', 0)
+            
+            # Bestäm typ av stopp
+            if is_hotel:
+                marker_type = 'hotel'
+                icon_color = 'red'
+                icon_name = 'bed'
+                marker_color = 'red'
+                total_hotels += 1
+            elif 'Hemresa' in hotel_reason or 'HEM' in hotel_reason.upper() or 'hem billigare' in hotel_reason.lower():
+                marker_type = 'home_return'
+                icon_color = 'green'
+                icon_name = 'home'
+                marker_color = 'green'
+                total_home_returns += 1
+            else:
+                marker_type = 'normal'
+                icon_color = 'blue'
+                icon_name = 'wrench'
+                marker_color = color
+                total_normal_stops += 1
+            
+            # Skapa popup med detaljerad info
+            popup_html = f"""
+            <div style='width: 260px; font-family: Arial;'>
+                <h4 style='margin: 0 0 8px 0; color: {color}; border-bottom: 2px solid {color}; padding-bottom: 5px;'>
+                    Dag {day} - Stopp {seg_idx+1}/{len(segments)}
+                </h4>
+                <p style='margin: 5px 0; font-size: 13px;'>
+                    <b>📍 Plats:</b> {customer}<br>
+                    <b>👥 Team:</b> {team_id} ({team_name})<br>
+                    <b>⏱️ Arbetstid:</b> {work_time:.1f}h<br>
+                    <b>🚗 Körsträcka hit:</b> {drive_distance:.0f} km
+                </p>
+                <hr style='margin: 8px 0; border: none; border-top: 1px solid #ddd;'>
+                <p style='margin: 5px 0; font-size: 12px; background: {'#ffe6e6' if marker_type == 'hotel' else '#e6ffe6' if marker_type == 'home_return' else '#f0f0f0'}; padding: 8px; border-radius: 4px;'>
+                    <b>Status:</b><br>{hotel_reason if hotel_reason else 'Normal arbetsplats'}
+                </p>
+            </div>
+            """
+            
+            # Rita marker baserat på typ
+            if marker_type == 'hotel':
+                # HOTELLNATT - Röd bed-icon
+                folium.Marker(
+                    location=[lat, lon],
+                    popup=folium.Popup(popup_html, max_width=300),
+                    tooltip=f"⚑ HOTELL: {customer}",
+                    icon=folium.Icon(color='red', icon='bed', prefix='fa')
+                ).add_to(fg)
+                
+            elif marker_type == 'home_return':
+                # HEMRESA - Grön circle marker
+                folium.CircleMarker(
+                    location=[lat, lon],
+                    radius=10,
+                    color='darkgreen',
+                    fill=True,
+                    fillColor='lightgreen',
+                    fillOpacity=0.8,
+                    weight=3,
+                    popup=folium.Popup(popup_html, max_width=300),
+                    tooltip=f"✓ HEMRESA: {customer}"
+                ).add_to(fg)
+                
+            else:
+                # NORMAL - Färgad circle marker
+                folium.CircleMarker(
+                    location=[lat, lon],
+                    radius=8,
+                    color=color,
+                    fill=True,
+                    fillColor=color,
+                    fillOpacity=0.7,
+                    weight=2,
+                    popup=folium.Popup(popup_html, max_width=300),
+                    tooltip=f"#{seg_idx+1}: {customer}"
+                ).add_to(fg)
+            
+            # Rita linje från föregående plats
+            if prev_location and len(prev_location) >= 2:
+                
+                if marker_type == 'home_return':
+                    # GRÖN STRECKAD LINJE för hemresa
+                    folium.PolyLine(
+                        [[prev_location[0], prev_location[1]], [lat, lon]],
+                        color='green',
+                        weight=4,
+                        opacity=0.7,
+                        dash_array='10, 10',
+                        tooltip=f"Hemresa efter {customer}"
+                    ).add_to(fg)
+                    
+                    # Linje från hem till nästa stopp (om inte sista)
+                    if home_base and seg_idx < len(segments) - 1:
+                        next_seg = segments[seg_idx + 1]
+                        next_loc = safe_get_attr(next_seg, 'location', None)
+                        if next_loc:
+                            next_lat = safe_get_attr(next_loc, 'latitude', None)
+                            next_lon = safe_get_attr(next_loc, 'longitude', None)
+                            if next_lat and next_lon:
+                                folium.PolyLine(
+                                    [[home_base[0], home_base[1]], [next_lat, next_lon]],
+                                    color='green',
+                                    weight=3,
+                                    opacity=0.5,
+                                    dash_array='5, 5',
+                                    tooltip=f"Från hemmabasen"
+                                ).add_to(fg)
+                        
+                        # Nästa prev_location är hemmabasen
+                        prev_location = home_base
+                    else:
+                        prev_location = (lat, lon)
+                        
+                else:
+                    # NORMAL FÄRGAD LINJE
+                    folium.PolyLine(
+                        [[prev_location[0], prev_location[1]], [lat, lon]],
+                        color=color,
+                        weight=3,
+                        opacity=0.6,
+                        tooltip=f"Till {customer}"
+                    ).add_to(fg)
+                    
+                    prev_location = (lat, lon)
+            else:
+                prev_location = (lat, lon)
+        
+        # Sista resan hem (om inte redan hemma)
+        if prev_location and home_base:
+            if (prev_location[0] != home_base[0] or prev_location[1] != home_base[1]):
+                folium.PolyLine(
+                    [[prev_location[0], prev_location[1]], [home_base[0], home_base[1]]],
+                    color=color,
+                    weight=3,
+                    opacity=0.6,
+                    dash_array='10, 10',
+                    tooltip=f"Slutlig hemresa: {team_name}"
+                ).add_to(fg)
+        
+        # Lägg till feature group till kartan
+        fg.add_to(m)
+    
+    # Layer control (för att visa/dölja teams)
+    folium.LayerControl(position='topright', collapsed=False).add_to(m)
+    
+    # Fullscreen-knapp
+    plugins.Fullscreen(
+        position='topleft',
+        title='Fullskärm',
+        title_cancel='Avsluta fullskärm',
+        force_separate_button=True
+    ).add_to(m)
+    
+    # Förbättrad legend med statistik
+    legend_html = f"""
+    <div style="position: fixed; 
+                bottom: 50px; right: 50px; width: 300px; 
+                background-color: white; border:2px solid #333; z-index:9999; 
+                font-size:13px; padding: 15px; border-radius: 8px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+                font-family: Arial, sans-serif;">
+        <h4 style="margin: 0 0 12px 0; border-bottom: 2px solid #333; padding-bottom: 8px;">
+            📊 Ruttöversikt
+        </h4>
+        <div style="margin: 8px 0;">
+            <p style="margin: 4px 0; line-height: 1.6;">
+                <b>👥 Antal team:</b> {len(team_routes)}<br>
+                <b>📍 Totalt stopp:</b> {total_normal_stops + total_hotels + total_home_returns}<br>
+                <b>⚑ Hotellnätter:</b> <span style="color: red; font-weight: bold;">{total_hotels}</span><br>
+                <b>✓ Hemresor:</b> <span style="color: green; font-weight: bold;">{total_home_returns}</span>
+            </p>
+        </div>
+        <hr style="margin: 12px 0; border: none; border-top: 1px solid #ddd;">
+        <div style="margin: 8px 0; font-size: 12px; line-height: 1.8;">
+            <p style="margin: 3px 0;">
+                <span style="font-size: 16px;">🏠</span> <b>Svart</b> = Hemmabas
+            </p>
+            <p style="margin: 3px 0;">
+                <span style="font-size: 16px; color: red;">⚑</span> <b>Röd</b> = Hotellnatt
+            </p>
+            <p style="margin: 3px 0;">
+                <span style="font-size: 16px; color: green;">✓</span> <b>Grön</b> = Hemresa (spar!)
+            </p>
+            <p style="margin: 3px 0;">
+                <span style="font-size: 16px;">⚫</span> <b>Färgad</b> = Arbetsplats
+            </p>
+            <p style="margin: 3px 0;">
+                <span style="color: grey;">━━━</span> <b>Heldragen</b> = Normal rutt
+            </p>
+            <p style="margin: 3px 0;">
+                <span style="color: green;">╌╌╌</span> <b>Streckad</b> = Hemresa
+            </p>
+        </div>
+        <div style="margin-top: 12px; padding: 8px; background: #f8f9fa; border-radius: 4px; font-size: 11px; color: #666;">
+            💡 <b>Tips:</b> Klicka på markers för detaljer. Använd Layer Control (↗) för att visa/dölja team.
+        </div>
+    </div>
+    """
+    
+    m.get_root().html.add_child(folium.Element(legend_html))
+    
+    # Generera HTML
+    html_string = m._repr_html_()
+    
+    return html_string
+
+
+def create_simple_overview_map(team_routes: List[Any]) -> str:
+    """
+    Skapar en enklare översiktskarta utan alla detaljer
+    Används som fallback om huvudkartan misslyckas
+    
+    Args:
+        team_routes: Lista med TeamRoute-objekt
+    
+    Returns:
+        HTML som sträng
+    """
+    
+    if not team_routes:
+        return "<html><body><h3>Ingen data att visa</h3></body></html>"
+    
+    # Samla koordinater
+    all_lats = []
+    all_lons = []
+    
+    for route in team_routes:
+        team = safe_get_attr(route, 'team', None)
+        if team:
+            home_base = safe_get_attr(team, 'home_base', None)
+            if home_base and len(home_base) >= 2:
+                all_lats.append(home_base[0])
+                all_lons.append(home_base[1])
+        
+        segments = safe_get_attr(route, 'segments', [])
+        for seg in segments:
+            location = safe_get_attr(seg, 'location', None)
+            if location:
+                lat = safe_get_attr(location, 'latitude', None)
+                lon = safe_get_attr(location, 'longitude', None)
+                if lat and lon:
+                    all_lats.append(lat)
+                    all_lons.append(lon)
+    
+    if not all_lats:
+        return "<html><body><h3>Inga koordinater hittades</h3></body></html>"
+    
+    # Skapa enkel karta
+    center_lat = np.mean(all_lats)
+    center_lon = np.mean(all_lons)
+    
+    m = folium.Map(
+        location=[center_lat, center_lon],
+        zoom_start=6,
+        tiles='OpenStreetMap'
+    )
+    
+    colors = create_color_palette(len(team_routes))
+    
+    # Rita enkla markers utan detaljer
+    for idx, route in enumerate(team_routes):
+        segments = safe_get_attr(route, 'segments', [])
+        
+        for seg in segments:
+            location = safe_get_attr(seg, 'location', None)
+            if location:
+                lat = safe_get_attr(location, 'latitude', None)
+                lon = safe_get_attr(location, 'longitude', None)
+                customer = safe_get_attr(location, 'customer', 'Plats')
+                
+                if lat and lon:
+                    folium.CircleMarker(
+                        location=[lat, lon],
+                        radius=5,
+                        color=colors[idx],
+                        fill=True,
+                        fillOpacity=0.7,
+                        tooltip=customer
+                    ).add_to(m)
+    
+    return m._repr_html_()
