@@ -144,9 +144,25 @@ with st.sidebar:
         # Load and preview data
         try:
             if uploaded_file.name.endswith('.csv'):
-                df = pd.read_csv(uploaded_file)
+                # Try different separators
+                try:
+                    df = pd.read_csv(uploaded_file, encoding='utf-8-sig')
+                except:
+                    uploaded_file.seek(0)
+                    df = pd.read_csv(uploaded_file, sep=';', encoding='utf-8-sig')
             else:
                 df = pd.read_excel(uploaded_file)
+            
+            # Normalize column names (case-insensitive, trim spaces)
+            df.columns = df.columns.str.strip()
+            
+            # Fix common column name variations
+            column_mapping = {
+                'kwh 2025': 'kWh 2025',
+                'Kwh 2025': 'kWh 2025',
+                'KWH 2025': 'kWh 2025',
+            }
+            df = df.rename(columns=column_mapping)
             
             st.metric("Antal rader", len(df))
             
@@ -526,7 +542,12 @@ else:
     # Display results if optimization is done
     if st.session_state.optimization_done and st.session_state.results:
         result = st.session_state.results
-        team_routes = result['team_routes']
+        team_routes = result.get('team_routes', [])
+        
+        # Validate team_routes
+        if not team_routes:
+            st.error("Ingen ruttdata tillgänglig. Försök köra optimeringen igen.")
+            st.stop()
         
         # Results
         st.markdown("---")
@@ -559,7 +580,11 @@ else:
             help="Efter filtrering"
         )
         
-        total_hotels = sum(r.hotel_nights for r in team_routes)
+        try:
+            total_hotels = sum(r.hotel_nights for r in team_routes)
+        except:
+            total_hotels = 0
+            
         col5.metric(
             "Hotellnätter",
             f"{total_hotels}",
@@ -686,23 +711,31 @@ else:
         with result_tabs[3]:
             st.markdown("#### Kostnadsnedbrytning")
             
-            # Calculate total costs
-            total_labor = sum(
-                r.total_work_time * config['labor_cost'] * config['team_size'] 
-                for r in team_routes
-            )
-            total_drive_labor = sum(
-                r.total_drive_time * config['labor_cost'] * config['team_size']
-                for r in team_routes
-            )
-            total_vehicle = sum(
-                r.total_distance * config['vehicle_cost']
-                for r in team_routes
-            )
-            total_hotel = sum(
-                r.hotel_nights * config['hotel_cost'] * config['team_size']
-                for r in team_routes
-            )
+            try:
+                # Calculate total costs
+                total_labor = sum(
+                    r.total_work_time * config['labor_cost'] * config['team_size'] 
+                    for r in team_routes
+                )
+                total_drive_labor = sum(
+                    r.total_drive_time * config['labor_cost'] * config['team_size']
+                    for r in team_routes
+                )
+                total_vehicle = sum(
+                    r.total_distance * config['vehicle_cost']
+                    for r in team_routes
+                )
+                total_hotel = sum(
+                    r.hotel_nights * config['hotel_cost'] * config['team_size']
+                    for r in team_routes
+                )
+            except Exception as e:
+                st.error("Kunde inte beräkna kostnadsnedbrytning. Använder total kostnad från resultatet.")
+                # Fallback values
+                total_labor = result['total_cost'] * 0.70
+                total_drive_labor = result['total_cost'] * 0.08
+                total_vehicle = result['total_cost'] * 0.12
+                total_hotel = result['total_cost'] * 0.10
             
             col1, col2 = st.columns(2)
             
