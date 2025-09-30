@@ -469,56 +469,102 @@ class RouteOptimizer:
     
     def assign_locations_to_teams(self, teams: List[Team]) -> List[TeamRoute]:
         """
-        Fördelar platser till teams och optimerar rutter
-        Använder geografisk klustring
+        Fördelar platser till teams baserat på NÄRMASTE TEAM
+        Detta säkerställer att varje plats besöks av sitt närmaste team
         """
         
         team_routes = []
         
-        # Skapa kopia av platser att fördela
-        unassigned = self.locations.copy()
+        # Skapa en dictionary för att hålla team-locations
+        team_assignments = {team.id: [] for team in teams}
         
-        # Fördela platser geografiskt närmast varje team
-        for team in teams:
-            # Filtrera platser inom max avstånd från detta team
-            team_locations = []
+        print("\n" + "="*60)
+        print("TILLDELAR PLATSER TILL NÄRMASTE TEAM")
+        print("="*60)
+        
+        # STEG 1: Tilldela varje plats till närmaste team
+        locations_outside_range = 0
+        
+        for location in self.locations:
+            # Hitta närmaste team inom max_distance
+            nearest_team = None
+            min_distance = float('inf')
             
-            for loc in unassigned[:]:
+            for team in teams:
                 distance = self.calculate_distance(
                     team.home_base[0], team.home_base[1],
-                    loc.latitude, loc.longitude
+                    location.latitude, location.longitude
                 )
                 
-                if distance <= self.config.get('max_distance', 500):
-                    team_locations.append(loc)
+                # Kontrollera max avstånd
+                max_dist = self.config.get('max_distance', 500)
+                if distance <= max_dist:
+                    if distance < min_distance:
+                        min_distance = distance
+                        nearest_team = team
+            
+            # Om ingen inom räckvidd, hitta absolut närmaste (relaxa regeln lite)
+            if not nearest_team:
+                locations_outside_range += 1
+                nearest_team = min(teams, key=lambda t: self.calculate_distance(
+                    t.home_base[0], t.home_base[1],
+                    location.latitude, location.longitude
+                ))
+                min_distance = self.calculate_distance(
+                    nearest_team.home_base[0], nearest_team.home_base[1],
+                    location.latitude, location.longitude
+                )
+            
+            # Tilldela platsen till närmaste team
+            team_assignments[nearest_team.id].append(location)
+        
+        if locations_outside_range > 0:
+            print(f"⚠️ {locations_outside_range} platser utanför max_distance - tilldelade ändå till närmaste team")
+        
+        print(f"\nFördelning av {len(self.locations)} platser:")
+        for team in teams:
+            count = len(team_assignments[team.id])
+            if count > 0:
+                print(f"  {team.home_name:20s}: {count:3d} platser")
+        print("="*60 + "\n")
+        
+        # STEG 2: Optimera rutt för varje team
+        for team in teams:
+            team_locations = team_assignments[team.id]
             
             if not team_locations:
                 continue
             
-            # Hitta centrum av kluster
-            avg_lat = np.mean([loc.latitude for loc in team_locations])
-            avg_lon = np.mean([loc.longitude for loc in team_locations])
+            # Sortera efter deadline om aktiverat
+            if self.config.get('use_deadlines', False):
+                sort_by = self.config.get('sort_by', 'both')
+                team_locations = self.sort_locations_by_deadline(team_locations, sort_by)
             
-            # Skapa virtuell startpunkt nära klustrets centrum
-            start_location = Location(
-                id=f"START_{team.id}",
-                customer="Start",
-                latitude=avg_lat,
-                longitude=avg_lon,
-                units=0,
-                filter_value=0,
-                work_time=0
-            )
+            # STEG 3: Bygg rutt med nearest neighbor från hemmabasen
+            route = []
+            remaining = team_locations.copy()
+            current_lat, current_lon = team.home_base
             
-            # Optimera rutt
-            route = self.nearest_neighbor_route(team_locations, start_location)
-            route = self.optimize_route_2opt(route)
+            while remaining:
+                # Hitta närmaste obesökta plats
+                nearest = min(remaining, key=lambda loc: self.calculate_distance(
+                    current_lat, current_lon,
+                    loc.latitude, loc.longitude
+                ))
+                
+                route.append(nearest)
+                remaining.remove(nearest)
+                current_lat, current_lon = nearest.latitude, nearest.longitude
             
-            # Ta bort startpunkten
-            route = [loc for loc in route if loc.id != start_location.id]
+            # STEG 4: Förbättra med 2-opt för mellanstora rutter
+            if len(route) > 3 and len(route) < 100:
+                route = self.optimize_route_2opt(route, max_iterations=50)
             
-            # Beräkna segment
+            # STEG 5: Beräkna segment med tider
             segments = self.calculate_route_segments(route, team)
+            
+            if not segments:
+                continue
             
             # Beräkna totaler
             total_distance = sum(seg.drive_distance for seg in segments)
@@ -544,11 +590,6 @@ class RouteOptimizer:
             team_route.total_cost = costs['total_cost']
             
             team_routes.append(team_route)
-            
-            # Ta bort tilldelade platser från unassigned
-            for loc in route:
-                if loc in unassigned:
-                    unassigned.remove(loc)
         
         return team_routes
 
