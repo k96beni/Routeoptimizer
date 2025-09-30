@@ -527,6 +527,7 @@ else:
                 
                 if result['success']:
                     st.session_state.results = result
+                    st.session_state.config = config  # SAVE CONFIG TO SESSION STATE
                     st.session_state.optimization_done = True
                     st.success("✅ Optimering klar!")
                     st.rerun()
@@ -543,6 +544,7 @@ else:
     if st.session_state.optimization_done and st.session_state.results:
         result = st.session_state.results
         team_routes = result.get('team_routes', [])
+        config = st.session_state.get('config', {})  # GET CONFIG FROM SESSION STATE
         
         # Validate team_routes
         if not team_routes:
@@ -662,8 +664,8 @@ else:
             st.info("🗺️ Kartan visar alla planerade rutter färgkodade per team")
             
             try:
-                # Generate map
-                map_html = create_route_map(team_routes, config)
+                # Generate map (config not actually used in map generation, pass empty dict)
+                map_html = create_route_map(team_routes, config if config else {})
                 
                 # Display map
                 st.components.v1.html(map_html, height=600, scrolling=True)
@@ -689,7 +691,7 @@ else:
             
             try:
                 # Generate Excel
-                excel_bytes = create_excel_report(team_routes, config)
+                excel_bytes = create_excel_report(team_routes, config if config else {})
                 
                 # Download button
                 st.download_button(
