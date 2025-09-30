@@ -441,19 +441,47 @@ class RouteOptimizer:
         """Skapar teams med olika hemmabaser"""
         
         # Svenska städer som hemmabaser
+        # HEMMABASER - Sveriges 30 största städer
+        # Välj fritt från listan genom att ändra num_teams
         home_bases = [
+            # Top 10 - Största städerna
             (59.3293, 18.0686, "Stockholm"),
             (57.7089, 11.9746, "Göteborg"),
             (55.6050, 13.0038, "Malmö"),
-            (58.4108, 15.6214, "Linköping"),
-            (59.2753, 15.2134, "Örebro"),
-            (60.6749, 17.1413, "Gävle"),
-            (63.8258, 20.2630, "Umeå"),
             (59.8586, 17.6389, "Uppsala"),
+            (59.2753, 15.2134, "Örebro"),
+            (58.4108, 15.6214, "Linköping"),
+            (56.1612, 15.5869, "Växjö"),
             (56.0465, 12.6945, "Helsingborg"),
+            (62.3908, 17.3069, "Sundsvall"),
             (58.5877, 16.1924, "Norrköping"),
+            
+            # 11-20
+            (57.7826, 14.1618, "Jönköping"),
+            (63.8258, 20.2630, "Umeå"),
+            (60.6749, 17.1413, "Gävle"),
+            (59.6099, 16.5448, "Västerås"),
+            (59.6749, 14.8702, "Karlstad"),
+            (59.0392, 12.5045, "Borås"),
+            (59.3793, 13.5039, "Eskilstuna"),
+            (65.5848, 22.1547, "Luleå"),
+            (56.8777, 14.8091, "Kalmar"),
+            (55.9929, 14.1579, "Kristianstad"),
+            
+            # 21-30
+            (63.1792, 14.6357, "Östersund"),
+            (58.5947, 13.5090, "Skövde"),
+            (57.1063, 12.2580, "Halmstad"),
+            (60.1282, 18.6435, "Norrtälje"),
+            (59.2741, 18.0825, "Södertälje"),
+            (58.7527, 17.0085, "Enköping"),
+            (62.6308, 17.9411, "Härnösand"),
+            (56.0371, 14.8533, "Karlskrona"),
+            (67.8558, 20.2253, "Kiruna"),
+            (58.2544, 12.3717, "Trollhättan"),
         ]
         
+        # Använd de första num_teams städerna från listan
         teams = []
         
         for i in range(min(num_teams, len(home_bases))):
