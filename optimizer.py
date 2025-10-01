@@ -311,10 +311,12 @@ class RouteOptimizer:
         daily_drive_time = 0
         daily_work_time = 0
         daily_distance = 0
+        daily_total_time = 0  # Total tid från hemmet
         
         work_hours = self.config.get('work_hours', 8)
         max_drive_hours = self.config.get('max_drive_hours', 5)
         max_daily_distance = self.config.get('max_daily_distance', 400)
+        max_total_day_hours = 8  # Total dagtid från hemmet till hem/hotell
         
         # Kostnadsparametrar för hotellbeslut
         labor_cost_per_hour = self.config.get('labor_cost', 500)
@@ -343,16 +345,24 @@ class RouteOptimizer:
             # Kolla om vi behöver överväga hotell eller hemresa
             needs_hotel = False
             
+            # Beräkna vad total dagtid skulle bli efter detta besök
+            projected_total_time = daily_total_time + drive_time + location.work_time
+            
             # Om vi når gränserna för dagen, jämför kostnad för hotell vs hemresa
             if (daily_drive_time + drive_time > max_drive_hours or
                 daily_work_time + location.work_time > work_hours or
-                daily_distance + distance > max_daily_distance):
+                daily_distance + distance > max_daily_distance or
+                projected_total_time > max_total_day_hours):
                 
                 # Beräkna avstånd från nuvarande plats till hemmabasen
                 distance_to_home = self.calculate_distance(
                     location.latitude, location.longitude,
                     team.home_base[0], team.home_base[1]
                 )
+                time_to_home = distance_to_home / 80
+                
+                # Kontrollera om vi kan hinna hem inom 8-timmarsgränsen
+                total_time_with_home_return = projected_total_time + time_to_home
                 
                 # Avstånd från hemmabasen till nästa plats (om det finns en nästa plats)
                 if i + 1 < len(route):
@@ -378,13 +388,22 @@ class RouteOptimizer:
                 # Kostnad för hotell
                 hotel_cost_total = hotel_cost_per_night * team_size
                 
-                # Välj billigaste alternativet
-                if hotel_cost_total < home_cost:
+                # Om hemresa skulle göra dagen längre än 8h, måste vi ta hotell
+                if total_time_with_home_return > max_total_day_hours:
                     needs_hotel = True
                     current_time = current_time.replace(hour=7, minute=0) + timedelta(days=1)
                     daily_drive_time = 0
                     daily_work_time = 0
                     daily_distance = 0
+                    daily_total_time = 0
+                # Annars välj billigaste alternativet
+                elif hotel_cost_total < home_cost:
+                    needs_hotel = True
+                    current_time = current_time.replace(hour=7, minute=0) + timedelta(days=1)
+                    daily_drive_time = 0
+                    daily_work_time = 0
+                    daily_distance = 0
+                    daily_total_time = 0
                 else:
                     # Åk hem - börja ny dag från hemmabasen
                     needs_hotel = False
@@ -393,14 +412,16 @@ class RouteOptimizer:
                     daily_drive_time = 0
                     daily_work_time = 0
                     daily_distance = 0
+                    daily_total_time = 0
                     
                     # Uppdatera distans och körtid för att inkludera hemresan
                     distance += distance_to_home
-                    drive_time += distance_to_home / 80
+                    drive_time += time_to_home
             
             # Uppdatera dagliga värden
             daily_drive_time += drive_time
             daily_distance += distance
+            daily_total_time += drive_time + location.work_time
             
             # Ankomst
             arrival_time = current_time + timedelta(hours=drive_time)
