@@ -122,6 +122,18 @@ class RouteOptimizer:
         
         locations = []
         
+        # Hämta team_size och beräkna efficiency factor
+        team_size = self.config.get('team_size', 2)
+        
+        # Efficiency factor: 1 person = 1.0, 2 personer = 1.8x snabbare
+        if team_size == 1:
+            efficiency_factor = 1.0
+        elif team_size == 2:
+            efficiency_factor = 1.8
+        else:
+            # För fler än 2 personer, använd en generell formel
+            efficiency_factor = 1.0 + (team_size - 1) * 0.8
+        
         for idx, row in data.iterrows():
             # Beräkna arbetstid
             units = row.get('units', 1)
@@ -133,10 +145,14 @@ class RouteOptimizer:
                 except:
                     units = 1
             
-            work_time = (
+            # Bas arbetstid (för 1 person)
+            base_work_time = (
                 self.config['setup_time'] / 60 +  # Setup i timmar
                 units * self.config['work_time_per_unit'] / 60  # Arbete per enhet i timmar
             )
+            
+            # Justera arbetstid baserat på team efficiency
+            work_time = base_work_time / efficiency_factor
             
             location = Location(
                 id=f"LOC_{idx}",
@@ -174,6 +190,16 @@ class RouteOptimizer:
         road_factor = self.config.get('road_factor', 1.3)
         
         return distance * road_factor
+    
+    def skip_weekends(self, dt: datetime) -> datetime:
+        """
+        Hoppar över helger (lördag och söndag)
+        Om datumet är en lördag eller söndag, flytta till nästa måndag
+        """
+        # weekday(): Måndag=0, Tisdag=1, ..., Lördag=5, Söndag=6
+        while dt.weekday() in [5, 6]:  # Lördag eller Söndag
+            dt = dt + timedelta(days=1)
+        return dt
     
     def filter_by_max_distance(self, home_base: Tuple[float, float]) -> List[Location]:
         """Filtrerar platser baserat på max avstånd från hemmabas"""
@@ -306,6 +332,7 @@ class RouteOptimizer:
         
         # Starta från hemmabas
         current_time = datetime.now().replace(hour=7, minute=0, second=0, microsecond=0)
+        current_time = self.skip_weekends(current_time)  # Starta inte på helg
         current_location = (team.home_base[0], team.home_base[1])
         
         daily_drive_time = 0
@@ -392,6 +419,7 @@ class RouteOptimizer:
                 if total_time_with_home_return > max_total_day_hours:
                     needs_hotel = True
                     current_time = current_time.replace(hour=7, minute=0) + timedelta(days=1)
+                    current_time = self.skip_weekends(current_time)  # Hoppa över helger
                     daily_drive_time = 0
                     daily_work_time = 0
                     daily_distance = 0
@@ -400,6 +428,7 @@ class RouteOptimizer:
                 elif hotel_cost_total < home_cost:
                     needs_hotel = True
                     current_time = current_time.replace(hour=7, minute=0) + timedelta(days=1)
+                    current_time = self.skip_weekends(current_time)  # Hoppa över helger
                     daily_drive_time = 0
                     daily_work_time = 0
                     daily_distance = 0
@@ -408,6 +437,7 @@ class RouteOptimizer:
                     # Åk hem - börja ny dag från hemmabasen
                     needs_hotel = False
                     current_time = current_time.replace(hour=7, minute=0) + timedelta(days=1)
+                    current_time = self.skip_weekends(current_time)  # Hoppa över helger
                     current_location = team.home_base  # Återställ till hemmabasen
                     daily_drive_time = 0
                     daily_work_time = 0
