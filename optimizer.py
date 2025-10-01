@@ -316,6 +316,12 @@ class RouteOptimizer:
         max_drive_hours = self.config.get('max_drive_hours', 5)
         max_daily_distance = self.config.get('max_daily_distance', 400)
         
+        # Kostnadsparametrar för hotellbeslut
+        labor_cost_per_hour = self.config.get('labor_cost', 500)
+        team_size = self.config.get('team_size', 2)
+        vehicle_cost_per_km = self.config.get('vehicle_cost', 2.5)
+        hotel_cost_per_night = self.config.get('hotel_cost', 2000)
+        
         for i, location in enumerate(route):
             # Beräkna körsträcka och tid
             distance = self.calculate_distance(
@@ -334,19 +340,63 @@ class RouteOptimizer:
             if daily_drive_time + drive_time > 2:
                 drive_time += pause_time
             
-            # Kolla om vi behöver hotell
+            # Kolla om vi behöver överväga hotell eller hemresa
             needs_hotel = False
             
+            # Om vi når gränserna för dagen, jämför kostnad för hotell vs hemresa
             if (daily_drive_time + drive_time > max_drive_hours or
                 daily_work_time + location.work_time > work_hours or
                 daily_distance + distance > max_daily_distance):
                 
-                # Hotellnatt - börja ny dag
-                needs_hotel = True
-                current_time = current_time.replace(hour=7, minute=0) + timedelta(days=1)
-                daily_drive_time = 0
-                daily_work_time = 0
-                daily_distance = 0
+                # Beräkna avstånd från nuvarande plats till hemmabasen
+                distance_to_home = self.calculate_distance(
+                    location.latitude, location.longitude,
+                    team.home_base[0], team.home_base[1]
+                )
+                
+                # Avstånd från hemmabasen till nästa plats (om det finns en nästa plats)
+                if i + 1 < len(route):
+                    distance_from_home_to_next = self.calculate_distance(
+                        team.home_base[0], team.home_base[1],
+                        route[i + 1].latitude, route[i + 1].longitude
+                    )
+                else:
+                    # Ingen nästa plats, så vi åker hem ändå
+                    distance_from_home_to_next = 0
+                
+                # Beräkna kostnader för hemresa
+                # Total extra körsträcka: hem + tillbaka nästa dag
+                home_extra_distance = distance_to_home + distance_from_home_to_next
+                home_drive_time = home_extra_distance / 80
+                
+                # Kostnad för hemresa = körkostnad + arbetstid för körning
+                home_cost = (
+                    home_extra_distance * vehicle_cost_per_km +  # Bränslekostnad
+                    home_drive_time * labor_cost_per_hour * team_size  # Arbetstid för körning
+                )
+                
+                # Kostnad för hotell
+                hotel_cost_total = hotel_cost_per_night * team_size
+                
+                # Välj billigaste alternativet
+                if hotel_cost_total < home_cost:
+                    needs_hotel = True
+                    current_time = current_time.replace(hour=7, minute=0) + timedelta(days=1)
+                    daily_drive_time = 0
+                    daily_work_time = 0
+                    daily_distance = 0
+                else:
+                    # Åk hem - börja ny dag från hemmabasen
+                    needs_hotel = False
+                    current_time = current_time.replace(hour=7, minute=0) + timedelta(days=1)
+                    current_location = team.home_base  # Återställ till hemmabasen
+                    daily_drive_time = 0
+                    daily_work_time = 0
+                    daily_distance = 0
+                    
+                    # Uppdatera distans och körtid för att inkludera hemresan
+                    distance += distance_to_home
+                    drive_time += distance_to_home / 80
             
             # Uppdatera dagliga värden
             daily_drive_time += drive_time
