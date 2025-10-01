@@ -201,6 +201,15 @@ class RouteOptimizer:
             dt = dt + timedelta(days=1)
         return dt
     
+    def is_before_weekend(self, dt: datetime) -> bool:
+        """
+        Kontrollerar om nästa dag är en helg (lördag eller söndag)
+        Returnerar True om idag är fredag eller om imorgon är lördag
+        """
+        # weekday(): Måndag=0, Tisdag=1, Onsdag=2, Torsdag=3, Fredag=4, Lördag=5, Söndag=6
+        tomorrow = dt + timedelta(days=1)
+        return tomorrow.weekday() in [5, 6]  # Imorgon är lördag eller söndag
+    
     def filter_by_max_distance(self, home_base: Tuple[float, float]) -> List[Location]:
         """Filtrerar platser baserat på max avstånd från hemmabas"""
         
@@ -375,6 +384,9 @@ class RouteOptimizer:
             # Beräkna vad total dagtid skulle bli efter detta besök
             projected_total_time = daily_total_time + drive_time + location.work_time
             
+            # VIKTIGT: Kontrollera om imorgon är helg - då MÅSTE vi åka hem
+            is_weekend_tomorrow = self.is_before_weekend(current_time + timedelta(hours=drive_time + location.work_time))
+            
             # Om vi når gränserna för dagen, jämför kostnad för hotell vs hemresa
             if (daily_drive_time + drive_time > max_drive_hours or
                 daily_work_time + location.work_time > work_hours or
@@ -391,53 +403,11 @@ class RouteOptimizer:
                 # Kontrollera om vi kan hinna hem inom 8-timmarsgränsen
                 total_time_with_home_return = projected_total_time + time_to_home
                 
-                # Avstånd från hemmabasen till nästa plats (om det finns en nästa plats)
-                if i + 1 < len(route):
-                    distance_from_home_to_next = self.calculate_distance(
-                        team.home_base[0], team.home_base[1],
-                        route[i + 1].latitude, route[i + 1].longitude
-                    )
-                else:
-                    # Ingen nästa plats, så vi åker hem ändå
-                    distance_from_home_to_next = 0
-                
-                # Beräkna kostnader för hemresa
-                # Total extra körsträcka: hem + tillbaka nästa dag
-                home_extra_distance = distance_to_home + distance_from_home_to_next
-                home_drive_time = home_extra_distance / 80
-                
-                # Kostnad för hemresa = körkostnad + arbetstid för körning
-                home_cost = (
-                    home_extra_distance * vehicle_cost_per_km +  # Bränslekostnad
-                    home_drive_time * labor_cost_per_hour * team_size  # Arbetstid för körning
-                )
-                
-                # Kostnad för hotell
-                hotel_cost_total = hotel_cost_per_night * team_size
-                
-                # Om hemresa skulle göra dagen längre än 8h, måste vi ta hotell
-                if total_time_with_home_return > max_total_day_hours:
-                    needs_hotel = True
-                    current_time = current_time.replace(hour=7, minute=0) + timedelta(days=1)
-                    current_time = self.skip_weekends(current_time)  # Hoppa över helger
-                    daily_drive_time = 0
-                    daily_work_time = 0
-                    daily_distance = 0
-                    daily_total_time = 0
-                # Annars välj billigaste alternativet
-                elif hotel_cost_total < home_cost:
-                    needs_hotel = True
-                    current_time = current_time.replace(hour=7, minute=0) + timedelta(days=1)
-                    current_time = self.skip_weekends(current_time)  # Hoppa över helger
-                    daily_drive_time = 0
-                    daily_work_time = 0
-                    daily_distance = 0
-                    daily_total_time = 0
-                else:
-                    # Åk hem - börja ny dag från hemmabasen
+                # REGEL 1: Om imorgon är helg (fredag kväll) -> MÅSTE åka hem
+                if is_weekend_tomorrow:
                     needs_hotel = False
                     current_time = current_time.replace(hour=7, minute=0) + timedelta(days=1)
-                    current_time = self.skip_weekends(current_time)  # Hoppa över helger
+                    current_time = self.skip_weekends(current_time)  # Hoppa över helgen
                     current_location = team.home_base  # Återställ till hemmabasen
                     daily_drive_time = 0
                     daily_work_time = 0
@@ -447,6 +417,69 @@ class RouteOptimizer:
                     # Uppdatera distans och körtid för att inkludera hemresan
                     distance += distance_to_home
                     drive_time += time_to_home
+                
+                # REGEL 2: Om hemresa skulle göra dagen längre än 8h -> MÅSTE ta hotell
+                elif total_time_with_home_return > max_total_day_hours:
+                    needs_hotel = True
+                    current_time = current_time.replace(hour=7, minute=0) + timedelta(days=1)
+                    current_time = self.skip_weekends(current_time)  # Hoppa över helger
+                    daily_drive_time = 0
+                    daily_work_time = 0
+                    daily_distance = 0
+                    daily_total_time = 0
+                
+                # REGEL 3: Jämför kostnad mellan hotell och hemresa
+                else:
+                    # Avstånd från hemmabasen till nästa plats (om det finns en nästa plats)
+                    if i + 1 < len(route):
+                        distance_from_home_to_next = self.calculate_distance(
+                            team.home_base[0], team.home_base[1],
+                            route[i + 1].latitude, route[i + 1].longitude
+                        )
+                    else:
+                        # Ingen nästa plats, så vi åker hem ändå
+                        distance_from_home_to_next = 0
+                    
+                    # Beräkna kostnader för hemresa
+                    # Total extra körsträcka: hem + tillbaka nästa dag
+                    home_extra_distance = distance_to_home + distance_from_home_to_next
+                    home_drive_time = home_extra_distance / 80
+                    
+                    # Kostnad för hemresa = körkostnad + arbetstid för körning
+                    home_cost = (
+                        home_extra_distance * vehicle_cost_per_km +  # Bränslekostnad
+                        home_drive_time * labor_cost_per_hour * team_size  # Arbetstid för körning
+                    )
+                    
+                    # Kostnad för hotell
+                    hotel_cost_total = hotel_cost_per_night * team_size
+                    
+                    # Välj billigaste alternativet
+                    # Ge hemresa en liten fördel (10%) för att prioritera hemma
+                    home_cost_adjusted = home_cost * 0.9  # 10% rabatt på hemresa-kostnad
+                    
+                    if hotel_cost_total < home_cost_adjusted:
+                        needs_hotel = True
+                        current_time = current_time.replace(hour=7, minute=0) + timedelta(days=1)
+                        current_time = self.skip_weekends(current_time)  # Hoppa över helger
+                        daily_drive_time = 0
+                        daily_work_time = 0
+                        daily_distance = 0
+                        daily_total_time = 0
+                    else:
+                        # Åk hem - börja ny dag från hemmabasen
+                        needs_hotel = False
+                        current_time = current_time.replace(hour=7, minute=0) + timedelta(days=1)
+                        current_time = self.skip_weekends(current_time)  # Hoppa över helger
+                        current_location = team.home_base  # Återställ till hemmabasen
+                        daily_drive_time = 0
+                        daily_work_time = 0
+                        daily_distance = 0
+                        daily_total_time = 0
+                        
+                        # Uppdatera distans och körtid för att inkludera hemresan
+                        distance += distance_to_home
+                        drive_time += time_to_home
             
             # Uppdatera dagliga värden
             daily_drive_time += drive_time
