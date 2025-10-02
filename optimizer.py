@@ -201,14 +201,13 @@ class RouteOptimizer:
             dt = dt + timedelta(days=1)
         return dt
     
-    def is_before_weekend(self, dt: datetime) -> bool:
+    def is_friday(self, dt: datetime) -> bool:
         """
-        Kontrollerar om nästa dag är en helg (lördag eller söndag)
-        Returnerar True om idag är fredag eller om imorgon är lördag
+        Kontrollerar om IDAG är fredag
+        Returnerar True om dagens veckodag är fredag (weekday == 4)
         """
         # weekday(): Måndag=0, Tisdag=1, Onsdag=2, Torsdag=3, Fredag=4, Lördag=5, Söndag=6
-        tomorrow = dt + timedelta(days=1)
-        return tomorrow.weekday() in [5, 6]  # Imorgon är lördag eller söndag
+        return dt.weekday() == 4  # Idag är fredag
     
     def filter_by_max_distance(self, home_base: Tuple[float, float]) -> List[Location]:
         """Filtrerar platser baserat på max avstånd från hemmabas"""
@@ -384,27 +383,68 @@ class RouteOptimizer:
             # Beräkna vad total dagtid skulle bli efter detta besök
             projected_total_time = daily_total_time + drive_time + location.work_time
             
-            # VIKTIGT: Kontrollera om imorgon är helg - då MÅSTE vi åka hem
-            is_weekend_tomorrow = self.is_before_weekend(current_time + timedelta(hours=drive_time + location.work_time))
+            # Beräkna avstånd från nuvarande plats till hemmabasen
+            distance_to_home = self.calculate_distance(
+                location.latitude, location.longitude,
+                team.home_base[0], team.home_base[1]
+            )
+            time_to_home = distance_to_home / 80
+            
+            # VIKTIGT: Kontrollera om IDAG är fredag
+            is_today_friday = self.is_friday(current_time)
+            
+            # ========================================
+            # REGEL 1 (HÖGST PRIORITET): Inom 100 km från hemma → ALLTID hem
+            # ========================================
+            if distance_to_home <= 100:
+                # Inom 100 km - MÅSTE åka hem, ingen hotell!
+                needs_hotel = False
+                # Vi fortsätter dagen om möjligt, annars åker hem
+                if projected_total_time + time_to_home <= max_total_day_hours:
+                    # Kan fortsätta jobba, inget behov att byta dag än
+                    pass
+                else:
+                    # Dagen blir för lång, åk hem och börja ny dag
+                    current_time = current_time.replace(hour=7, minute=0) + timedelta(days=1)
+                    current_time = self.skip_weekends(current_time)
+                    current_location = team.home_base
+                    daily_drive_time = 0
+                    daily_work_time = 0
+                    daily_distance = 0
+                    daily_total_time = 0
+                    distance += distance_to_home
+                    drive_time += time_to_home
+            
+            # ========================================
+            # REGEL 2: Fredag → ALLTID hem över helgen
+            # ========================================
+            elif is_today_friday:
+                needs_hotel = False
+                current_time = current_time.replace(hour=7, minute=0) + timedelta(days=1)
+                current_time = self.skip_weekends(current_time)  # Hoppa över helgen
+                current_location = team.home_base  # Återställ till hemmabasen
+                daily_drive_time = 0
+                daily_work_time = 0
+                daily_distance = 0
+                daily_total_time = 0
+                
+                # Uppdatera distans och körtid för att inkludera hemresan
+                distance += distance_to_home
+                drive_time += time_to_home
             
             # Om vi når gränserna för dagen, jämför kostnad för hotell vs hemresa
-            if (daily_drive_time + drive_time > max_drive_hours or
-                daily_work_time + location.work_time > work_hours or
-                daily_distance + distance > max_daily_distance or
-                projected_total_time > max_total_day_hours):
-                
-                # Beräkna avstånd från nuvarande plats till hemmabasen
-                distance_to_home = self.calculate_distance(
-                    location.latitude, location.longitude,
-                    team.home_base[0], team.home_base[1]
-                )
-                time_to_home = distance_to_home / 80
+            elif (daily_drive_time + drive_time > max_drive_hours or
+                  daily_work_time + location.work_time > work_hours or
+                  daily_distance + distance > max_daily_distance or
+                  projected_total_time > max_total_day_hours):
                 
                 # Kontrollera om vi kan hinna hem inom 8-timmarsgränsen
                 total_time_with_home_return = projected_total_time + time_to_home
                 
-                # REGEL 1: Om imorgon är helg (fredag kväll) -> MÅSTE åka hem
-                if is_weekend_tomorrow:
+                # ========================================
+                # REGEL 3: Hemresa > 8h → MÅSTE ta hotell
+                # ========================================
+                if total_time_with_home_return > max_total_day_hours:
                     needs_hotel = False
                     current_time = current_time.replace(hour=7, minute=0) + timedelta(days=1)
                     current_time = self.skip_weekends(current_time)  # Hoppa över helgen
@@ -418,8 +458,10 @@ class RouteOptimizer:
                     distance += distance_to_home
                     drive_time += time_to_home
                 
-                # REGEL 2: Om hemresa skulle göra dagen längre än 8h -> MÅSTE ta hotell
-                elif total_time_with_home_return > max_total_day_hours:
+                # ========================================
+                # REGEL 3: Hemresa > 8h → MÅSTE ta hotell
+                # ========================================
+                if total_time_with_home_return > max_total_day_hours:
                     needs_hotel = True
                     current_time = current_time.replace(hour=7, minute=0) + timedelta(days=1)
                     current_time = self.skip_weekends(current_time)  # Hoppa över helger
@@ -428,7 +470,9 @@ class RouteOptimizer:
                     daily_distance = 0
                     daily_total_time = 0
                 
-                # REGEL 3: Jämför kostnad mellan hotell och hemresa
+                # ========================================
+                # REGEL 4: Kostnadsjämförelse (hemresa vs hotell)
+                # ========================================
                 else:
                     # Avstånd från hemmabasen till nästa plats (om det finns en nästa plats)
                     if i + 1 < len(route):
