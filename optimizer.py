@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Tuple, Optional
 from dataclasses import dataclass
 from scipy.spatial.distance import cdist
+from sklearn.cluster import KMeans
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -581,43 +582,106 @@ class RouteOptimizer:
             'total_cost': total_cost
         }
     
-    def optimize_team_count(self, min_teams: int = 5, max_teams: int = 8) -> Dict:
+    def optimize_team_count(self, min_teams: int = 5, max_teams: int = 12) -> Dict:
         """
-        Testar olika antal team och väljer mest kostnadseffektiv konfiguration
+        Testar olika antal team OCH optimerar hemmabasplacering med K-means.
+        Väljer mest kostnadseffektiv konfiguration.
+        
+        Args:
+            min_teams: Minsta antal team att testa (default 5)
+            max_teams: Största antal team att testa (default 12, ökat från 8)
         """
         
         results = {}
+        unassigned_by_team_count = {}
+        optimal_bases_by_team_count = {}
+        
+        print("\n" + "="*70)
+        print("🔍 OPTIMERAR HEMMABASPLACERING MED K-MEANS CLUSTERING")
+        print("="*70)
+        print(f"Testar {min_teams}-{max_teams} team med optimerade hemmabaser...")
+        print(f"Baserat på {len(self.locations)} platser")
+        print("="*70 + "\n")
         
         for num_teams in range(min_teams, max_teams + 1):
-            # Skapa teams
-            teams = self.create_teams(num_teams)
+            # Hitta optimala hemmabaser med K-means
+            optimal_bases = self.find_optimal_home_bases(num_teams)
+            optimal_bases_by_team_count[num_teams] = optimal_bases
             
-            # Fördela platser till teams
-            team_routes = self.assign_locations_to_teams(teams)
+            # Skriv ut valda städer
+            city_names = [base[2] for base in optimal_bases]
+            print(f"📍 {num_teams} team: {', '.join(city_names)}")
+            
+            # Skapa teams med optimerade baser
+            teams = self.create_teams(num_teams, optimal_bases=optimal_bases)
+            
+            # Fördela platser till teams (returnerar nu både routes och unassigned)
+            team_routes, unassigned_locations = self.assign_locations_to_teams(teams)
+            
+            # Spara unassigned för denna konfiguration
+            unassigned_by_team_count[num_teams] = unassigned_locations
             
             # Beräkna total kostnad
-            total_cost = sum(route.total_cost for route in team_routes)
-            total_days = max(route.total_days for route in team_routes)
+            total_cost = sum(route.total_cost for route in team_routes) if team_routes else 0
+            total_days = max(route.total_days for route in team_routes) if team_routes else 0
+            
+            # Beräkna total körsträcka
+            total_distance = sum(route.total_distance for route in team_routes) if team_routes else 0
             
             results[num_teams] = {
                 'teams': team_routes,
                 'total_cost': total_cost,
                 'total_days': total_days,
-                'cost_per_location': total_cost / len(self.locations) if self.locations else 0
+                'total_distance': total_distance,
+                'cost_per_location': total_cost / len(self.locations) if self.locations else 0,
+                'unassigned_count': len(unassigned_locations),
+                'home_bases': optimal_bases
             }
+            
+            print(f"   💰 Kostnad: {total_cost:,.0f} kr | 🚗 {total_distance:,.0f} km | ⚪ Obesökta: {len(unassigned_locations)}")
         
         # Hitta bästa konfiguration (lägst kostnad)
         best_config = min(results.items(), key=lambda x: x[1]['total_cost'])
         
+        print("\n" + "="*70)
+        print(f"✅ BÄSTA KONFIGURATION: {best_config[0]} team")
+        print(f"   Hemmabaser: {', '.join([b[2] for b in results[best_config[0]]['home_bases']])}")
+        print(f"   Total kostnad: {best_config[1]['total_cost']:,.0f} kr")
+        print(f"   Total körsträcka: {best_config[1]['total_distance']:,.0f} km")
+        print(f"   Obesökta platser: {best_config[1]['unassigned_count']}")
+        print("="*70 + "\n")
+        
         return {
             'optimal_teams': best_config[0],
             'results': results,
-            'best_result': best_config[1]
+            'best_result': best_config[1],
+            'unassigned_locations': unassigned_by_team_count[best_config[0]],
+            'all_optimal_bases': optimal_bases_by_team_count
         }
     
-    def create_teams(self, num_teams: int) -> List[Team]:
-        """Skapar teams med olika hemmabaser"""
+    def create_teams(self, num_teams: int, optimal_bases: List[Tuple[float, float, str]] = None) -> List[Team]:
+        """
+        Skapar teams med hemmabaser
         
+        Args:
+            num_teams: Antal team att skapa
+            optimal_bases: Optimerade hemmabaser från K-means (om None, använd statiska)
+        """
+        
+        # Om optimala baser finns, använd dem
+        if optimal_bases and len(optimal_bases) >= num_teams:
+            teams = []
+            for i in range(num_teams):
+                team = Team(
+                    id=i + 1,
+                    home_base=(optimal_bases[i][0], optimal_bases[i][1]),
+                    home_name=optimal_bases[i][2]
+                )
+                teams.append(team)
+            self.teams = teams
+            return teams
+        
+        # Annars, använd statiska baser (fallback)
         # Svenska städer som hemmabaser
         # HEMMABASER - Sveriges 30 största städer
         # Välj fritt från listan genom att ändra num_teams
@@ -673,6 +737,109 @@ class RouteOptimizer:
         self.teams = teams
         return teams
     
+    def find_optimal_home_bases(self, num_clusters: int) -> List[Tuple[float, float, str]]:
+        """
+        Hittar optimala hemmabaser baserat på K-means clustering av uttagens positioner.
+        Mappar varje cluster-center till närmaste stad från lista över 30 städer.
+        
+        Args:
+            num_clusters: Antal hemmabaser att hitta (antal team)
+            
+        Returns:
+            Lista med (lat, lon, stad_namn) för optimerade hemmabaser
+        """
+        
+        # Svenska städer att välja från (30 största)
+        AVAILABLE_CITIES = [
+            (59.3293, 18.0686, "Stockholm"),
+            (57.7089, 11.9746, "Göteborg"),
+            (55.6050, 13.0038, "Malmö"),
+            (59.8586, 17.6389, "Uppsala"),
+            (59.2753, 15.2134, "Örebro"),
+            (58.4108, 15.6214, "Linköping"),
+            (56.1612, 15.5869, "Växjö"),
+            (56.0465, 12.6945, "Helsingborg"),
+            (62.3908, 17.3069, "Sundsvall"),
+            (58.5877, 16.1924, "Norrköping"),
+            (57.7826, 14.1618, "Jönköping"),
+            (63.8258, 20.2630, "Umeå"),
+            (60.6749, 17.1413, "Gävle"),
+            (59.6099, 16.5448, "Västerås"),
+            (59.6749, 14.8702, "Karlstad"),
+            (59.0392, 12.5045, "Borås"),
+            (59.3793, 13.5039, "Eskilstuna"),
+            (65.5848, 22.1547, "Luleå"),
+            (56.8777, 14.8091, "Kalmar"),
+            (55.9929, 14.1579, "Kristianstad"),
+            (63.1792, 14.6357, "Östersund"),
+            (58.5947, 13.5090, "Skövde"),
+            (57.1063, 12.2580, "Halmstad"),
+            (60.1282, 18.6435, "Norrtälje"),
+            (59.2741, 18.0825, "Södertälje"),
+            (58.7527, 17.0085, "Enköping"),
+            (62.6308, 17.9411, "Härnösand"),
+            (56.0371, 14.8533, "Karlskrona"),
+            (67.8558, 20.2253, "Kiruna"),
+            (58.2544, 12.3717, "Trollhättan"),
+        ]
+        
+        if not self.locations or len(self.locations) == 0:
+            # Fallback: använd de första N städerna
+            return AVAILABLE_CITIES[:num_clusters]
+        
+        # Samla alla uttags-positioner
+        location_coords = np.array([
+            [loc.latitude, loc.longitude] for loc in self.locations
+        ])
+        
+        # Om färre platser än clusters, använd statiska baser
+        if len(location_coords) < num_clusters:
+            return AVAILABLE_CITIES[:num_clusters]
+        
+        # Kör K-means clustering
+        kmeans = KMeans(n_clusters=num_clusters, random_state=42, n_init=10)
+        kmeans.fit(location_coords)
+        
+        # Få cluster centers (optimala positioner)
+        cluster_centers = kmeans.cluster_centers_
+        
+        # För varje cluster center, hitta närmaste stad
+        optimal_bases = []
+        used_cities = set()
+        
+        for center_lat, center_lon in cluster_centers:
+            # Hitta närmaste stad som inte redan används
+            best_city = None
+            min_distance = float('inf')
+            
+            for city_lat, city_lon, city_name in AVAILABLE_CITIES:
+                # Skippa om stad redan använd
+                if city_name in used_cities:
+                    continue
+                
+                # Beräkna avstånd
+                distance = self.calculate_distance(
+                    center_lat, center_lon,
+                    city_lat, city_lon
+                )
+                
+                if distance < min_distance:
+                    min_distance = distance
+                    best_city = (city_lat, city_lon, city_name)
+            
+            if best_city:
+                optimal_bases.append(best_city)
+                used_cities.add(best_city[2])
+            else:
+                # Om alla städer används, ta första lediga (edge case)
+                for city in AVAILABLE_CITIES:
+                    if city[2] not in used_cities:
+                        optimal_bases.append(city)
+                        used_cities.add(city[2])
+                        break
+        
+        return optimal_bases
+    
     def assign_locations_to_teams(self, teams: List[Team]) -> List[TeamRoute]:
         """
         Fördelar platser till teams baserat på NÄRMASTE TEAM
@@ -690,6 +857,7 @@ class RouteOptimizer:
         
         # STEG 1: Tilldela varje plats till närmaste team
         locations_outside_range = 0
+        unassigned_locations = []  # Platser som INTE kan tilldelas
         
         for location in self.locations:
             # Hitta närmaste team inom max_distance
@@ -709,23 +877,18 @@ class RouteOptimizer:
                         min_distance = distance
                         nearest_team = team
             
-            # Om ingen inom räckvidd, hitta absolut närmaste (relaxa regeln lite)
+            # Om INGEN inom räckvidd - TILLDELA INTE!
             if not nearest_team:
                 locations_outside_range += 1
-                nearest_team = min(teams, key=lambda t: self.calculate_distance(
-                    t.home_base[0], t.home_base[1],
-                    location.latitude, location.longitude
-                ))
-                min_distance = self.calculate_distance(
-                    nearest_team.home_base[0], nearest_team.home_base[1],
-                    location.latitude, location.longitude
-                )
-            
-            # Tilldela platsen till närmaste team
-            team_assignments[nearest_team.id].append(location)
+                unassigned_locations.append(location)
+                print(f"⚠️  {location.customer} är {min_distance:.0f} km från närmaste team - HOPPAR ÖVER")
+            else:
+                # Tilldela platsen till närmaste team
+                team_assignments[nearest_team.id].append(location)
         
         if locations_outside_range > 0:
-            print(f"⚠️ {locations_outside_range} platser utanför max_distance - tilldelade ändå till närmaste team")
+            print(f"\n⚠️  {locations_outside_range} platser utanför max_distance ({self.config.get('max_distance', 500)} km) - BESÖKS INTE")
+            print(f"    Dessa platser visas som grå på kartan.\n")
         
         print(f"\nFördelning av {len(self.locations)} platser:")
         for team in teams:
@@ -797,7 +960,8 @@ class RouteOptimizer:
             
             team_routes.append(team_route)
         
-        return team_routes
+        # Returnera både team_routes och unassigned_locations
+        return team_routes, unassigned_locations
 
 
 def run_optimization(df: pd.DataFrame, config: Dict, profile: Dict) -> Dict:
@@ -827,9 +991,9 @@ def run_optimization(df: pd.DataFrame, config: Dict, profile: Dict) -> Dict:
     # Skapa platser
     locations = optimizer.create_locations(processed_data, profile)
     
-    # Optimera antal team
+    # Optimera antal team (med K-means hemmabasoptimering)
     min_teams = config.get('min_teams', 5)
-    max_teams = config.get('max_teams', 8)
+    max_teams = config.get('max_teams', 12)  # Ökat från 8 till 12
     
     optimization_result = optimizer.optimize_team_count(min_teams, max_teams)
     
@@ -845,7 +1009,9 @@ def run_optimization(df: pd.DataFrame, config: Dict, profile: Dict) -> Dict:
         'total_locations': len(locations),
         'cost_per_location': best_result['cost_per_location'],
         'all_team_results': optimization_result['results'],
-        'filtered_data': processed_data
+        'filtered_data': processed_data,
+        'all_locations': locations,  # ALLA platser (för kartvisning)
+        'unassigned_locations': optimization_result['unassigned_locations']  # Obesökta platser
     }
     
     return result
