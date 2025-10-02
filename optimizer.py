@@ -12,15 +12,6 @@ from scipy.spatial.distance import cdist
 import warnings
 warnings.filterwarnings('ignore')
 
-# Try to import sklearn, but continue without it if not available
-try:
-    from sklearn.cluster import KMeans
-    SKLEARN_AVAILABLE = True
-except ImportError:
-    SKLEARN_AVAILABLE = False
-    print("⚠️  scikit-learn inte tillgängligt - använder statiska hemmabaser istället")
-    print("   Installera scikit-learn för K-means hemmabasoptimering")
-
 
 @dataclass
 class Location:
@@ -119,23 +110,10 @@ class RouteOptimizer:
             threshold = self.config.get('priority_threshold', 1)
             data = data[data['filter_value'] <= threshold]
         
-        # Exkludera specifika kunder (case-insensitive + partial match)
+        # Exkludera specifika kunder
         exclude_customers = self.config.get('exclude_customers', [])
         if exclude_customers:
-            # Konvertera customer-kolumnen till lowercase för jämförelse
-            data_lower = data['customer'].str.lower()
-            
-            # Exkludera om NÅGOT av exclude-namnen finns i customer-namnet
-            for exclude_name in exclude_customers:
-                exclude_lower = exclude_name.lower()
-                # Använd str.contains för att matcha del av namnet
-                mask = data_lower.str.contains(exclude_lower, case=False, na=False)
-                data = data[~mask]
-                
-                # Logga vad som exkluderades
-                excluded_count = mask.sum()
-                if excluded_count > 0:
-                    print(f"   Exkluderade {excluded_count} rader för kund som innehåller '{exclude_name}'")
+            data = data[~data['customer'].isin(exclude_customers)]
         
         return data
     
@@ -223,13 +201,14 @@ class RouteOptimizer:
             dt = dt + timedelta(days=1)
         return dt
     
-    def is_friday(self, dt: datetime) -> bool:
+    def is_before_weekend(self, dt: datetime) -> bool:
         """
-        Kontrollerar om IDAG är fredag
-        Returnerar True om dagens veckodag är fredag (weekday == 4)
+        Kontrollerar om nästa dag är en helg (lördag eller söndag)
+        Returnerar True om idag är fredag eller om imorgon är lördag
         """
         # weekday(): Måndag=0, Tisdag=1, Onsdag=2, Torsdag=3, Fredag=4, Lördag=5, Söndag=6
-        return dt.weekday() == 4  # Idag är fredag
+        tomorrow = dt + timedelta(days=1)
+        return tomorrow.weekday() in [5, 6]  # Imorgon är lördag eller söndag
     
     def filter_by_max_distance(self, home_base: Tuple[float, float]) -> List[Location]:
         """Filtrerar platser baserat på max avstånd från hemmabas"""
@@ -412,21 +391,25 @@ class RouteOptimizer:
             )
             time_to_home = distance_to_home / 80
             
-            # VIKTIGT: Kontrollera om IDAG är fredag
-            is_today_friday = self.is_friday(current_time)
+            # Kontrollera om vi kan hinna hem inom 8-timmarsgränsen
+            total_time_with_home_return = projected_total_time + time_to_home
             
-            # ========================================
-            # REGEL 1 (HÖGST PRIORITET): Inom 100 km från hemma → ALLTID hem
-            # ========================================
-            if distance_to_home <= 100:
-                # Inom 100 km - MÅSTE åka hem, ingen hotell!
-                needs_hotel = False
-                # Vi fortsätter dagen om möjligt, annars åker hem
-                if projected_total_time + time_to_home <= max_total_day_hours:
-                    # Kan fortsätta jobba, inget behov att byta dag än
-                    pass
-                else:
-                    # Dagen blir för lång, åk hem och börja ny dag
+            # VIKTIGT: Kontrollera om IDAG är fredag
+            is_friday = current_time.weekday() == 4  # Fredag = 4
+            
+            # Om vi når gränserna för dagen, besluta om hotell eller hemresa
+            if (daily_drive_time + drive_time > max_drive_hours or
+                daily_work_time + location.work_time > work_hours or
+                daily_distance + distance > max_daily_distance or
+                projected_total_time > max_total_day_hours):
+                
+                # ============================================================
+                # BESLUTSREGLER (i prioritetsordning):
+                # ============================================================
+                
+                # REGEL 1: Om idag är fredag -> MÅSTE åka hem (HÖGSTA PRIORITET)
+                if is_friday:
+                    needs_hotel = False
                     current_time = current_time.replace(hour=7, minute=0) + timedelta(days=1)
                     current_time = self.skip_weekends(current_time)
                     current_location = team.home_base
@@ -436,114 +419,73 @@ class RouteOptimizer:
                     daily_total_time = 0
                     distance += distance_to_home
                     drive_time += time_to_home
-            
-            # ========================================
-            # REGEL 2: Fredag → ALLTID hem över helgen
-            # ========================================
-            elif is_today_friday:
-                needs_hotel = False
-                current_time = current_time.replace(hour=7, minute=0) + timedelta(days=1)
-                current_time = self.skip_weekends(current_time)  # Hoppa över helgen
-                current_location = team.home_base  # Återställ till hemmabasen
-                daily_drive_time = 0
-                daily_work_time = 0
-                daily_distance = 0
-                daily_total_time = 0
                 
-                # Uppdatera distans och körtid för att inkludera hemresan
-                distance += distance_to_home
-                drive_time += time_to_home
-            
-            # Om vi når gränserna för dagen, jämför kostnad för hotell vs hemresa
-            elif (daily_drive_time + drive_time > max_drive_hours or
-                  daily_work_time + location.work_time > work_hours or
-                  daily_distance + distance > max_daily_distance or
-                  projected_total_time > max_total_day_hours):
-                
-                # Kontrollera om vi kan hinna hem inom 8-timmarsgränsen
-                total_time_with_home_return = projected_total_time + time_to_home
-                
-                # ========================================
-                # REGEL 3: Hemresa > 8h → MÅSTE ta hotell
-                # ========================================
-                if total_time_with_home_return > max_total_day_hours:
+                # REGEL 2: Om inom 100 km från hemma -> MÅSTE åka hem
+                elif distance_to_home <= 100:
                     needs_hotel = False
                     current_time = current_time.replace(hour=7, minute=0) + timedelta(days=1)
-                    current_time = self.skip_weekends(current_time)  # Hoppa över helgen
-                    current_location = team.home_base  # Återställ till hemmabasen
+                    current_time = self.skip_weekends(current_time)
+                    current_location = team.home_base
                     daily_drive_time = 0
                     daily_work_time = 0
                     daily_distance = 0
                     daily_total_time = 0
-                    
-                    # Uppdatera distans och körtid för att inkludera hemresan
                     distance += distance_to_home
                     drive_time += time_to_home
                 
-                # ========================================
-                # REGEL 3: Hemresa > 8h → MÅSTE ta hotell
-                # ========================================
-                if total_time_with_home_return > max_total_day_hours:
+                # REGEL 3: Om hemresa skulle göra dagen längre än 8h -> MÅSTE ta hotell
+                elif total_time_with_home_return > max_total_day_hours:
                     needs_hotel = True
                     current_time = current_time.replace(hour=7, minute=0) + timedelta(days=1)
-                    current_time = self.skip_weekends(current_time)  # Hoppa över helger
+                    current_time = self.skip_weekends(current_time)
                     daily_drive_time = 0
                     daily_work_time = 0
                     daily_distance = 0
                     daily_total_time = 0
                 
-                # ========================================
-                # REGEL 4: Kostnadsjämförelse (hemresa vs hotell)
-                # ========================================
+                # REGEL 4: Kostnadsjämförelse (med 10% hemresa-fördel)
                 else:
-                    # Avstånd från hemmabasen till nästa plats (om det finns en nästa plats)
+                    # Avstånd från hemmabasen till nästa plats
                     if i + 1 < len(route):
                         distance_from_home_to_next = self.calculate_distance(
                             team.home_base[0], team.home_base[1],
                             route[i + 1].latitude, route[i + 1].longitude
                         )
                     else:
-                        # Ingen nästa plats, så vi åker hem ändå
                         distance_from_home_to_next = 0
                     
                     # Beräkna kostnader för hemresa
-                    # Total extra körsträcka: hem + tillbaka nästa dag
                     home_extra_distance = distance_to_home + distance_from_home_to_next
                     home_drive_time = home_extra_distance / 80
                     
-                    # Kostnad för hemresa = körkostnad + arbetstid för körning
                     home_cost = (
-                        home_extra_distance * vehicle_cost_per_km +  # Bränslekostnad
-                        home_drive_time * labor_cost_per_hour * team_size  # Arbetstid för körning
+                        home_extra_distance * vehicle_cost_per_km +
+                        home_drive_time * labor_cost_per_hour * team_size
                     )
                     
                     # Kostnad för hotell
                     hotel_cost_total = hotel_cost_per_night * team_size
                     
-                    # Välj billigaste alternativet
-                    # Ge hemresa en liten fördel (10%) för att prioritera hemma
-                    home_cost_adjusted = home_cost * 0.9  # 10% rabatt på hemresa-kostnad
+                    # Ge hemresa 10% fördel
+                    home_cost_adjusted = home_cost * 0.9
                     
                     if hotel_cost_total < home_cost_adjusted:
                         needs_hotel = True
                         current_time = current_time.replace(hour=7, minute=0) + timedelta(days=1)
-                        current_time = self.skip_weekends(current_time)  # Hoppa över helger
+                        current_time = self.skip_weekends(current_time)
                         daily_drive_time = 0
                         daily_work_time = 0
                         daily_distance = 0
                         daily_total_time = 0
                     else:
-                        # Åk hem - börja ny dag från hemmabasen
                         needs_hotel = False
                         current_time = current_time.replace(hour=7, minute=0) + timedelta(days=1)
-                        current_time = self.skip_weekends(current_time)  # Hoppa över helger
-                        current_location = team.home_base  # Återställ till hemmabasen
+                        current_time = self.skip_weekends(current_time)
+                        current_location = team.home_base
                         daily_drive_time = 0
                         daily_work_time = 0
                         daily_distance = 0
                         daily_total_time = 0
-                        
-                        # Uppdatera distans och körtid för att inkludera hemresan
                         distance += distance_to_home
                         drive_time += time_to_home
             
@@ -603,113 +545,43 @@ class RouteOptimizer:
             'total_cost': total_cost
         }
     
-    def optimize_team_count(self, min_teams: int = 5, max_teams: int = 12) -> Dict:
+    def optimize_team_count(self, min_teams: int = 5, max_teams: int = 8) -> Dict:
         """
-        Testar olika antal team OCH optimerar hemmabasplacering med K-means.
-        Väljer mest kostnadseffektiv konfiguration.
-        
-        OBS: K-means optimering kräver scikit-learn. Om inte tillgängligt, 
-        används statiska hemmabaser.
-        
-        Args:
-            min_teams: Minsta antal team att testa (default 5)
-            max_teams: Största antal team att testa (default 12, ökat från 8)
+        Testar olika antal team och väljer mest kostnadseffektiv konfiguration
         """
         
         results = {}
-        unassigned_by_team_count = {}
-        optimal_bases_by_team_count = {}
-        
-        print("\n" + "="*70)
-        if SKLEARN_AVAILABLE:
-            print("🔍 OPTIMERAR HEMMABASPLACERING MED K-MEANS CLUSTERING")
-        else:
-            print("⚠️  ANVÄNDER STATISKA HEMMABASER (scikit-learn ej installerat)")
-            print("   Installera scikit-learn för K-means optimering")
-        print("="*70)
-        print(f"Testar {min_teams}-{max_teams} team...")
-        print(f"Baserat på {len(self.locations)} platser")
-        print("="*70 + "\n")
         
         for num_teams in range(min_teams, max_teams + 1):
-            # Hitta optimala hemmabaser med K-means (eller statiska om sklearn saknas)
-            optimal_bases = self.find_optimal_home_bases(num_teams)
-            optimal_bases_by_team_count[num_teams] = optimal_bases
+            # Skapa teams
+            teams = self.create_teams(num_teams)
             
-            # Skriv ut valda städer
-            city_names = [base[2] for base in optimal_bases]
-            print(f"📍 {num_teams} team: {', '.join(city_names)}")
-            
-            # Skapa teams med optimerade baser
-            teams = self.create_teams(num_teams, optimal_bases=optimal_bases)
-            
-            # Fördela platser till teams (returnerar nu både routes och unassigned)
-            team_routes, unassigned_locations = self.assign_locations_to_teams(teams)
-            
-            # Spara unassigned för denna konfiguration
-            unassigned_by_team_count[num_teams] = unassigned_locations
+            # Fördela platser till teams
+            team_routes = self.assign_locations_to_teams(teams)
             
             # Beräkna total kostnad
-            total_cost = sum(route.total_cost for route in team_routes) if team_routes else 0
-            total_days = max(route.total_days for route in team_routes) if team_routes else 0
-            
-            # Beräkna total körsträcka
-            total_distance = sum(route.total_distance for route in team_routes) if team_routes else 0
+            total_cost = sum(route.total_cost for route in team_routes)
+            total_days = max(route.total_days for route in team_routes)
             
             results[num_teams] = {
                 'teams': team_routes,
                 'total_cost': total_cost,
                 'total_days': total_days,
-                'total_distance': total_distance,
-                'cost_per_location': total_cost / len(self.locations) if self.locations else 0,
-                'unassigned_count': len(unassigned_locations),
-                'home_bases': optimal_bases
+                'cost_per_location': total_cost / len(self.locations) if self.locations else 0
             }
-            
-            print(f"   💰 Kostnad: {total_cost:,.0f} kr | 🚗 {total_distance:,.0f} km | ⚪ Obesökta: {len(unassigned_locations)}")
         
         # Hitta bästa konfiguration (lägst kostnad)
         best_config = min(results.items(), key=lambda x: x[1]['total_cost'])
         
-        print("\n" + "="*70)
-        print(f"✅ BÄSTA KONFIGURATION: {best_config[0]} team")
-        print(f"   Hemmabaser: {', '.join([b[2] for b in results[best_config[0]]['home_bases']])}")
-        print(f"   Total kostnad: {best_config[1]['total_cost']:,.0f} kr")
-        print(f"   Total körsträcka: {best_config[1]['total_distance']:,.0f} km")
-        print(f"   Obesökta platser: {best_config[1]['unassigned_count']}")
-        print("="*70 + "\n")
-        
         return {
             'optimal_teams': best_config[0],
             'results': results,
-            'best_result': best_config[1],
-            'unassigned_locations': unassigned_by_team_count[best_config[0]],
-            'all_optimal_bases': optimal_bases_by_team_count
+            'best_result': best_config[1]
         }
     
-    def create_teams(self, num_teams: int, optimal_bases: List[Tuple[float, float, str]] = None) -> List[Team]:
-        """
-        Skapar teams med hemmabaser
+    def create_teams(self, num_teams: int) -> List[Team]:
+        """Skapar teams med olika hemmabaser"""
         
-        Args:
-            num_teams: Antal team att skapa
-            optimal_bases: Optimerade hemmabaser från K-means (om None, använd statiska)
-        """
-        
-        # Om optimala baser finns, använd dem
-        if optimal_bases and len(optimal_bases) >= num_teams:
-            teams = []
-            for i in range(num_teams):
-                team = Team(
-                    id=i + 1,
-                    home_base=(optimal_bases[i][0], optimal_bases[i][1]),
-                    home_name=optimal_bases[i][2]
-                )
-                teams.append(team)
-            self.teams = teams
-            return teams
-        
-        # Annars, använd statiska baser (fallback)
         # Svenska städer som hemmabaser
         # HEMMABASER - Sveriges 30 största städer
         # Välj fritt från listan genom att ändra num_teams
@@ -765,123 +637,6 @@ class RouteOptimizer:
         self.teams = teams
         return teams
     
-    def find_optimal_home_bases(self, num_clusters: int) -> List[Tuple[float, float, str]]:
-        """
-        Hittar optimala hemmabaser baserat på K-means clustering av uttagens positioner.
-        Mappar varje cluster-center till närmaste stad från lista över 30 städer.
-        
-        OBS: Kräver scikit-learn. Om inte tillgängligt, returneras statiska baser.
-        
-        Args:
-            num_clusters: Antal hemmabaser att hitta (antal team)
-            
-        Returns:
-            Lista med (lat, lon, stad_namn) för optimerade hemmabaser
-        """
-        
-        # Svenska städer att välja från (30 största)
-        AVAILABLE_CITIES = [
-            (59.3293, 18.0686, "Stockholm"),
-            (57.7089, 11.9746, "Göteborg"),
-            (55.6050, 13.0038, "Malmö"),
-            (59.8586, 17.6389, "Uppsala"),
-            (59.2753, 15.2134, "Örebro"),
-            (58.4108, 15.6214, "Linköping"),
-            (56.1612, 15.5869, "Växjö"),
-            (56.0465, 12.6945, "Helsingborg"),
-            (62.3908, 17.3069, "Sundsvall"),
-            (58.5877, 16.1924, "Norrköping"),
-            (57.7826, 14.1618, "Jönköping"),
-            (63.8258, 20.2630, "Umeå"),
-            (60.6749, 17.1413, "Gävle"),
-            (59.6099, 16.5448, "Västerås"),
-            (59.6749, 14.8702, "Karlstad"),
-            (59.0392, 12.5045, "Borås"),
-            (59.3793, 13.5039, "Eskilstuna"),
-            (65.5848, 22.1547, "Luleå"),
-            (56.8777, 14.8091, "Kalmar"),
-            (55.9929, 14.1579, "Kristianstad"),
-            (63.1792, 14.6357, "Östersund"),
-            (58.5947, 13.5090, "Skövde"),
-            (57.1063, 12.2580, "Halmstad"),
-            (60.1282, 18.6435, "Norrtälje"),
-            (59.2741, 18.0825, "Södertälje"),
-            (58.7527, 17.0085, "Enköping"),
-            (62.6308, 17.9411, "Härnösand"),
-            (56.0371, 14.8533, "Karlskrona"),
-            (67.8558, 20.2253, "Kiruna"),
-            (58.2544, 12.3717, "Trollhättan"),
-        ]
-        
-        # Om sklearn inte finns, använd statiska baser
-        if not SKLEARN_AVAILABLE:
-            print("⚠️  K-means ej tillgängligt - använder statiska hemmabaser")
-            return AVAILABLE_CITIES[:num_clusters]
-        
-        if not self.locations or len(self.locations) == 0:
-            # Fallback: använd de första N städerna
-            return AVAILABLE_CITIES[:num_clusters]
-        
-        # Samla alla uttags-positioner
-        location_coords = np.array([
-            [loc.latitude, loc.longitude] for loc in self.locations
-        ])
-        
-        # Om färre platser än clusters, använd statiska baser
-        if len(location_coords) < num_clusters:
-            return AVAILABLE_CITIES[:num_clusters]
-        
-        try:
-            # Kör K-means clustering
-            kmeans = KMeans(n_clusters=num_clusters, random_state=42, n_init=10)
-            kmeans.fit(location_coords)
-            
-            # Få cluster centers (optimala positioner)
-            cluster_centers = kmeans.cluster_centers_
-            
-            # För varje cluster center, hitta närmaste stad
-            optimal_bases = []
-            used_cities = set()
-            
-            for center_lat, center_lon in cluster_centers:
-                # Hitta närmaste stad som inte redan används
-                best_city = None
-                min_distance = float('inf')
-                
-                for city_lat, city_lon, city_name in AVAILABLE_CITIES:
-                    # Skippa om stad redan använd
-                    if city_name in used_cities:
-                        continue
-                    
-                    # Beräkna avstånd
-                    distance = self.calculate_distance(
-                        center_lat, center_lon,
-                        city_lat, city_lon
-                    )
-                    
-                    if distance < min_distance:
-                        min_distance = distance
-                        best_city = (city_lat, city_lon, city_name)
-                
-                if best_city:
-                    optimal_bases.append(best_city)
-                    used_cities.add(best_city[2])
-                else:
-                    # Om alla städer används, ta första lediga (edge case)
-                    for city in AVAILABLE_CITIES:
-                        if city[2] not in used_cities:
-                            optimal_bases.append(city)
-                            used_cities.add(city[2])
-                            break
-            
-            return optimal_bases
-            
-        except Exception as e:
-            # Om K-means misslyckas av någon anledning, fallback till statiska
-            print(f"⚠️  K-means misslyckades: {e}")
-            print("   Använder statiska hemmabaser istället")
-            return AVAILABLE_CITIES[:num_clusters]
-    
     def assign_locations_to_teams(self, teams: List[Team]) -> List[TeamRoute]:
         """
         Fördelar platser till teams baserat på NÄRMASTE TEAM
@@ -899,7 +654,6 @@ class RouteOptimizer:
         
         # STEG 1: Tilldela varje plats till närmaste team
         locations_outside_range = 0
-        unassigned_locations = []  # Platser som INTE kan tilldelas
         
         for location in self.locations:
             # Hitta närmaste team inom max_distance
@@ -919,18 +673,23 @@ class RouteOptimizer:
                         min_distance = distance
                         nearest_team = team
             
-            # Om INGEN inom räckvidd - TILLDELA INTE!
+            # Om ingen inom räckvidd, hitta absolut närmaste (relaxa regeln lite)
             if not nearest_team:
                 locations_outside_range += 1
-                unassigned_locations.append(location)
-                print(f"⚠️  {location.customer} är {min_distance:.0f} km från närmaste team - HOPPAR ÖVER")
-            else:
-                # Tilldela platsen till närmaste team
-                team_assignments[nearest_team.id].append(location)
+                nearest_team = min(teams, key=lambda t: self.calculate_distance(
+                    t.home_base[0], t.home_base[1],
+                    location.latitude, location.longitude
+                ))
+                min_distance = self.calculate_distance(
+                    nearest_team.home_base[0], nearest_team.home_base[1],
+                    location.latitude, location.longitude
+                )
+            
+            # Tilldela platsen till närmaste team
+            team_assignments[nearest_team.id].append(location)
         
         if locations_outside_range > 0:
-            print(f"\n⚠️  {locations_outside_range} platser utanför max_distance ({self.config.get('max_distance', 500)} km) - BESÖKS INTE")
-            print(f"    Dessa platser visas som grå på kartan.\n")
+            print(f"⚠️ {locations_outside_range} platser utanför max_distance - tilldelade ändå till närmaste team")
         
         print(f"\nFördelning av {len(self.locations)} platser:")
         for team in teams:
@@ -1002,8 +761,7 @@ class RouteOptimizer:
             
             team_routes.append(team_route)
         
-        # Returnera både team_routes och unassigned_locations
-        return team_routes, unassigned_locations
+        return team_routes
 
 
 def run_optimization(df: pd.DataFrame, config: Dict, profile: Dict) -> Dict:
@@ -1033,9 +791,9 @@ def run_optimization(df: pd.DataFrame, config: Dict, profile: Dict) -> Dict:
     # Skapa platser
     locations = optimizer.create_locations(processed_data, profile)
     
-    # Optimera antal team (med K-means hemmabasoptimering)
+    # Optimera antal team
     min_teams = config.get('min_teams', 5)
-    max_teams = config.get('max_teams', 12)  # Ökat från 8 till 12
+    max_teams = config.get('max_teams', 8)
     
     optimization_result = optimizer.optimize_team_count(min_teams, max_teams)
     
@@ -1051,9 +809,7 @@ def run_optimization(df: pd.DataFrame, config: Dict, profile: Dict) -> Dict:
         'total_locations': len(locations),
         'cost_per_location': best_result['cost_per_location'],
         'all_team_results': optimization_result['results'],
-        'filtered_data': processed_data,
-        'all_locations': locations,  # ALLA platser (för kartvisning)
-        'unassigned_locations': optimization_result['unassigned_locations']  # Obesökta platser
+        'filtered_data': processed_data
     }
     
     return result
