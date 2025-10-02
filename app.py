@@ -416,11 +416,11 @@ else:
                 "Maximum antal team",
                 min_value=min_teams,
                 max_value=15,
-                value=8,
-                help="Applikationen testar olika antal och väljer mest ekonomiskt"
+                value=12,
+                help="Systemet hittar optimala hemmabaser med K-means clustering och väljer mest ekonomiskt antal team"
             )
             
-            st.info(f"🔍 Testar {max_teams - min_teams + 1} olika konfigurationer")
+            st.info(f"🔍 Testar {max_teams - min_teams + 1} konfigurationer med K-means optimerade hemmabaser")
         
         with col2:
             st.markdown("**Ruttoptimering**")
@@ -593,6 +593,20 @@ else:
             help="Totalt alla team"
         )
         
+        # Visa optimerade hemmabaser
+        if 'best_result' in result and 'home_bases' in result['best_result']:
+            st.markdown("---")
+            st.markdown("#### 🏠 Optimerade hemmabaser (K-means clustering)")
+            
+            home_bases = result['best_result']['home_bases']
+            city_names = [base[2] for base in home_bases]
+            
+            # Visa som badges
+            st.markdown(
+                " • ".join([f"**{city}**" for city in city_names]),
+                help="Systemet placerade hemmabaser där dina uttag finns koncentrerade"
+            )
+        
         # Tabs for results
         result_tabs = st.tabs(["📈 Översikt", "🗺️ Karta", "📋 Detaljplan", "💰 Kostnadsnedbrytning"])
         
@@ -664,8 +678,23 @@ else:
             st.info("🗺️ Kartan visar alla planerade rutter färgkodade per team")
             
             try:
-                # Generate map (config not actually used in map generation, pass empty dict)
-                map_html = create_route_map(team_routes, config if config else {})
+                # Hämta obesökta platser från results
+                all_locations = result.get('all_locations', [])
+                unassigned_locations = result.get('unassigned_locations', [])
+                
+                # Skapa lista med besökta platser (alla platser i segments)
+                visited_locations = []
+                for route in team_routes:
+                    for segment in route.segments:
+                        visited_locations.append(segment.location)
+                
+                # Generate map med obesökta platser
+                map_html = create_route_map(
+                    team_routes, 
+                    config if config else {},
+                    all_locations=all_locations,
+                    visited_locations=visited_locations
+                )
                 
                 # Display map
                 st.components.v1.html(map_html, height=600, scrolling=True)
