@@ -9,9 +9,17 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Tuple, Optional
 from dataclasses import dataclass
 from scipy.spatial.distance import cdist
-from sklearn.cluster import KMeans
 import warnings
 warnings.filterwarnings('ignore')
+
+# Try to import sklearn, but continue without it if not available
+try:
+    from sklearn.cluster import KMeans
+    SKLEARN_AVAILABLE = True
+except ImportError:
+    SKLEARN_AVAILABLE = False
+    print("⚠️  scikit-learn inte tillgängligt - använder statiska hemmabaser istället")
+    print("   Installera scikit-learn för K-means hemmabasoptimering")
 
 
 @dataclass
@@ -111,10 +119,23 @@ class RouteOptimizer:
             threshold = self.config.get('priority_threshold', 1)
             data = data[data['filter_value'] <= threshold]
         
-        # Exkludera specifika kunder
+        # Exkludera specifika kunder (case-insensitive + partial match)
         exclude_customers = self.config.get('exclude_customers', [])
         if exclude_customers:
-            data = data[~data['customer'].isin(exclude_customers)]
+            # Konvertera customer-kolumnen till lowercase för jämförelse
+            data_lower = data['customer'].str.lower()
+            
+            # Exkludera om NÅGOT av exclude-namnen finns i customer-namnet
+            for exclude_name in exclude_customers:
+                exclude_lower = exclude_name.lower()
+                # Använd str.contains för att matcha del av namnet
+                mask = data_lower.str.contains(exclude_lower, case=False, na=False)
+                data = data[~mask]
+                
+                # Logga vad som exkluderades
+                excluded_count = mask.sum()
+                if excluded_count > 0:
+                    print(f"   Exkluderade {excluded_count} rader för kund som innehåller '{exclude_name}'")
         
         return data
     
@@ -587,6 +608,9 @@ class RouteOptimizer:
         Testar olika antal team OCH optimerar hemmabasplacering med K-means.
         Väljer mest kostnadseffektiv konfiguration.
         
+        OBS: K-means optimering kräver scikit-learn. Om inte tillgängligt, 
+        används statiska hemmabaser.
+        
         Args:
             min_teams: Minsta antal team att testa (default 5)
             max_teams: Största antal team att testa (default 12, ökat från 8)
@@ -597,14 +621,18 @@ class RouteOptimizer:
         optimal_bases_by_team_count = {}
         
         print("\n" + "="*70)
-        print("🔍 OPTIMERAR HEMMABASPLACERING MED K-MEANS CLUSTERING")
+        if SKLEARN_AVAILABLE:
+            print("🔍 OPTIMERAR HEMMABASPLACERING MED K-MEANS CLUSTERING")
+        else:
+            print("⚠️  ANVÄNDER STATISKA HEMMABASER (scikit-learn ej installerat)")
+            print("   Installera scikit-learn för K-means optimering")
         print("="*70)
-        print(f"Testar {min_teams}-{max_teams} team med optimerade hemmabaser...")
+        print(f"Testar {min_teams}-{max_teams} team...")
         print(f"Baserat på {len(self.locations)} platser")
         print("="*70 + "\n")
         
         for num_teams in range(min_teams, max_teams + 1):
-            # Hitta optimala hemmabaser med K-means
+            # Hitta optimala hemmabaser med K-means (eller statiska om sklearn saknas)
             optimal_bases = self.find_optimal_home_bases(num_teams)
             optimal_bases_by_team_count[num_teams] = optimal_bases
             
@@ -742,6 +770,8 @@ class RouteOptimizer:
         Hittar optimala hemmabaser baserat på K-means clustering av uttagens positioner.
         Mappar varje cluster-center till närmaste stad från lista över 30 städer.
         
+        OBS: Kräver scikit-learn. Om inte tillgängligt, returneras statiska baser.
+        
         Args:
             num_clusters: Antal hemmabaser att hitta (antal team)
             
@@ -783,6 +813,11 @@ class RouteOptimizer:
             (58.2544, 12.3717, "Trollhättan"),
         ]
         
+        # Om sklearn inte finns, använd statiska baser
+        if not SKLEARN_AVAILABLE:
+            print("⚠️  K-means ej tillgängligt - använder statiska hemmabaser")
+            return AVAILABLE_CITIES[:num_clusters]
+        
         if not self.locations or len(self.locations) == 0:
             # Fallback: använd de första N städerna
             return AVAILABLE_CITIES[:num_clusters]
@@ -796,49 +831,56 @@ class RouteOptimizer:
         if len(location_coords) < num_clusters:
             return AVAILABLE_CITIES[:num_clusters]
         
-        # Kör K-means clustering
-        kmeans = KMeans(n_clusters=num_clusters, random_state=42, n_init=10)
-        kmeans.fit(location_coords)
-        
-        # Få cluster centers (optimala positioner)
-        cluster_centers = kmeans.cluster_centers_
-        
-        # För varje cluster center, hitta närmaste stad
-        optimal_bases = []
-        used_cities = set()
-        
-        for center_lat, center_lon in cluster_centers:
-            # Hitta närmaste stad som inte redan används
-            best_city = None
-            min_distance = float('inf')
+        try:
+            # Kör K-means clustering
+            kmeans = KMeans(n_clusters=num_clusters, random_state=42, n_init=10)
+            kmeans.fit(location_coords)
             
-            for city_lat, city_lon, city_name in AVAILABLE_CITIES:
-                # Skippa om stad redan använd
-                if city_name in used_cities:
-                    continue
-                
-                # Beräkna avstånd
-                distance = self.calculate_distance(
-                    center_lat, center_lon,
-                    city_lat, city_lon
-                )
-                
-                if distance < min_distance:
-                    min_distance = distance
-                    best_city = (city_lat, city_lon, city_name)
+            # Få cluster centers (optimala positioner)
+            cluster_centers = kmeans.cluster_centers_
             
-            if best_city:
-                optimal_bases.append(best_city)
-                used_cities.add(best_city[2])
-            else:
-                # Om alla städer används, ta första lediga (edge case)
-                for city in AVAILABLE_CITIES:
-                    if city[2] not in used_cities:
-                        optimal_bases.append(city)
-                        used_cities.add(city[2])
-                        break
-        
-        return optimal_bases
+            # För varje cluster center, hitta närmaste stad
+            optimal_bases = []
+            used_cities = set()
+            
+            for center_lat, center_lon in cluster_centers:
+                # Hitta närmaste stad som inte redan används
+                best_city = None
+                min_distance = float('inf')
+                
+                for city_lat, city_lon, city_name in AVAILABLE_CITIES:
+                    # Skippa om stad redan använd
+                    if city_name in used_cities:
+                        continue
+                    
+                    # Beräkna avstånd
+                    distance = self.calculate_distance(
+                        center_lat, center_lon,
+                        city_lat, city_lon
+                    )
+                    
+                    if distance < min_distance:
+                        min_distance = distance
+                        best_city = (city_lat, city_lon, city_name)
+                
+                if best_city:
+                    optimal_bases.append(best_city)
+                    used_cities.add(best_city[2])
+                else:
+                    # Om alla städer används, ta första lediga (edge case)
+                    for city in AVAILABLE_CITIES:
+                        if city[2] not in used_cities:
+                            optimal_bases.append(city)
+                            used_cities.add(city[2])
+                            break
+            
+            return optimal_bases
+            
+        except Exception as e:
+            # Om K-means misslyckas av någon anledning, fallback till statiska
+            print(f"⚠️  K-means misslyckades: {e}")
+            print("   Använder statiska hemmabaser istället")
+            return AVAILABLE_CITIES[:num_clusters]
     
     def assign_locations_to_teams(self, teams: List[Team]) -> List[TeamRoute]:
         """

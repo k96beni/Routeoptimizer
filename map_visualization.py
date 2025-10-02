@@ -41,21 +41,24 @@ def safe_get_attr(obj: Any, attr: str, default: Any = None) -> Any:
         return default
 
 
-def create_route_map(team_routes: List[Any], config: Dict) -> str:
+def create_route_map(team_routes: List[Any], config: Dict, all_locations: List[Any] = None, visited_locations: List[Any] = None) -> str:
     """
     Skapar interaktiv Folium-karta med alla team-rutter
-    INKLUDERAR HOTELLNATT-VISUALISERING
+    INKLUDERAR HOTELLNATT-VISUALISERING OCH OBESÖKTA PLATSER
     
     Färgkodning:
     - 🏠 Svart marker = Hemmabas
     - ⚑ Röd marker = Hotellnatt
     - ✓ Grön cirkel = Hemresa (sparar pengar)
     - ⚫ Färgad cirkel = Normal arbetsplats
+    - ⚪ Grå cirkel = Obesökt plats (filtrerad bort)
     - --- Streckad linje = Hemresa-rutt
     
     Args:
         team_routes: Lista med TeamRoute-objekt
         config: Konfiguration
+        all_locations: Alla platser från ursprunglig data (optional)
+        visited_locations: Platser som faktiskt besöks (optional)
     
     Returns:
         HTML som sträng
@@ -318,6 +321,66 @@ def create_route_map(team_routes: List[Any], config: Dict) -> str:
         # Lägg till feature group till kartan
         fg.add_to(m)
     
+    # ========================================
+    # OBESÖKTA PLATSER (Filtrerade bort eller utanför räckvidd)
+    # ========================================
+    unvisited_count = 0
+    if all_locations and visited_locations:
+        # Hitta platser som INTE besöktes
+        visited_ids = set()
+        for loc in visited_locations:
+            visited_ids.add(safe_get_attr(loc, 'id', None))
+        
+        # Skapa feature group för obesökta platser
+        unvisited_fg = folium.FeatureGroup(name="⚪ Obesökta platser", show=True)
+        
+        for location in all_locations:
+            loc_id = safe_get_attr(location, 'id', None)
+            
+            # Om platsen inte besöktes
+            if loc_id and loc_id not in visited_ids:
+                lat = safe_get_attr(location, 'latitude', None)
+                lon = safe_get_attr(location, 'longitude', None)
+                customer = safe_get_attr(location, 'customer', 'Okänd')
+                units = safe_get_attr(location, 'units', 0)
+                filter_val = safe_get_attr(location, 'filter_value', 0)
+                
+                if lat and lon:
+                    unvisited_count += 1
+                    
+                    # Popup för obesökt plats
+                    popup_html = f"""
+                    <div style='width: 220px; font-family: Arial;'>
+                        <h4 style='margin: 0 0 8px 0; color: #999; border-bottom: 2px solid #999; padding-bottom: 5px;'>
+                            ⚪ Obesökt plats
+                        </h4>
+                        <p style='margin: 5px 0; font-size: 13px;'>
+                            <b>📍 Kund:</b> {customer}<br>
+                            <b>📦 Enheter:</b> {units}<br>
+                            <b>🔍 Filtervärde:</b> {filter_val:.0f}
+                        </p>
+                        <hr style='margin: 8px 0;'>
+                        <p style='margin: 5px 0; font-size: 11px; color: #666; background: #f5f5f5; padding: 6px; border-radius: 4px;'>
+                            <b>Anledning:</b> Filtrerad bort eller för långt från alla team-baser
+                        </p>
+                    </div>
+                    """
+                    
+                    # Grå cirkel för obesökta
+                    folium.CircleMarker(
+                        location=[lat, lon],
+                        radius=4,
+                        color='#999',
+                        fill=True,
+                        fillColor='#ddd',
+                        fillOpacity=0.5,
+                        weight=1,
+                        popup=folium.Popup(popup_html, max_width=250),
+                        tooltip=f"⚪ {customer} (obesökt)"
+                    ).add_to(unvisited_fg)
+        
+        unvisited_fg.add_to(m)
+    
     # Layer control (för att visa/dölja teams)
     folium.LayerControl(position='topright', collapsed=False).add_to(m)
     
@@ -345,7 +408,8 @@ def create_route_map(team_routes: List[Any], config: Dict) -> str:
                 <b>👥 Antal team:</b> {len(team_routes)}<br>
                 <b>📍 Totalt stopp:</b> {total_normal_stops + total_hotels + total_home_returns}<br>
                 <b>⚑ Hotellnätter:</b> <span style="color: red; font-weight: bold;">{total_hotels}</span><br>
-                <b>✓ Hemresor:</b> <span style="color: green; font-weight: bold;">{total_home_returns}</span>
+                <b>✓ Hemresor:</b> <span style="color: green; font-weight: bold;">{total_home_returns}</span><br>
+                <b>⚪ Obesökta:</b> <span style="color: #999; font-weight: bold;">{unvisited_count}</span>
             </p>
         </div>
         <hr style="margin: 12px 0; border: none; border-top: 1px solid #ddd;">
@@ -361,6 +425,9 @@ def create_route_map(team_routes: List[Any], config: Dict) -> str:
             </p>
             <p style="margin: 3px 0;">
                 <span style="font-size: 16px;">⚫</span> <b>Färgad</b> = Arbetsplats
+            </p>
+            <p style="margin: 3px 0;">
+                <span style="font-size: 16px; color: #999;">⚪</span> <b>Grå</b> = Obesökt
             </p>
             <p style="margin: 3px 0;">
                 <span style="color: grey;">━━━</span> <b>Heldragen</b> = Normal rutt
