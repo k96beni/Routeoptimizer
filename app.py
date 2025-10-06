@@ -649,6 +649,7 @@ else:
                     'navigation_time': navigation_time,
                     'work_time_per_unit': profile['work_time_per_unit'],
                     'setup_time': profile['setup_time'],
+                    'driving_speed': 80,
                     
                     # Hemmabashantering
                     'allowed_home_bases': allowed_home_bases if home_base_mode == 'restricted' else None,
