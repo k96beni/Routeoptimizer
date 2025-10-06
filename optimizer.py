@@ -449,7 +449,7 @@ class RouteOptimizer:
         daily_work_time = 0
         daily_drive_time = 0
         
-        for location in route:
+        for idx, location in enumerate(route):
             # Beräkna avstånd och körtid
             distance = self.calculate_distance(
                 current_lat, current_lon,
@@ -462,23 +462,67 @@ class RouteOptimizer:
             total_drive_time = drive_time + (num_pauses * pause_time) + navigation_time
             
             # Kontrollera om vi behöver ny dag
-            if (daily_work_time + location.work_time > work_hours or 
-                daily_drive_time + total_drive_time > max_drive_hours):
-                
-                # Ny dag
-                is_hotel = True
+            needs_new_day = (daily_work_time + location.work_time > work_hours or 
+                            daily_drive_time + total_drive_time > max_drive_hours)
+            
+            if needs_new_day:
+                # Starta ny dag
                 current_time = current_time.replace(hour=7, minute=0, second=0, microsecond=0)
                 current_time = current_time + timedelta(days=1)
                 current_time = self.skip_weekends(current_time)
                 
                 daily_work_time = 0
                 daily_drive_time = 0
-            else:
-                is_hotel = False
+                
+                # Omberäkna körtid från hemmabas till denna plats
+                distance = self.calculate_distance(
+                    team.home_base[0], team.home_base[1],
+                    location.latitude, location.longitude
+                )
+                drive_time = distance / driving_speed
+                num_pauses = int(drive_time / 2)
+                total_drive_time = drive_time + (num_pauses * pause_time) + navigation_time
             
             # Uppdatera tid
             arrival_time = current_time + timedelta(hours=total_drive_time)
             departure_time = arrival_time + timedelta(hours=location.work_time)
+            
+            # Bestäm om hotellnatt behövs
+            # Hotellnatt behövs om:
+            # 1. Det INTE är sista platsen OCH
+            # 2. Efter detta besök kan vi INTE åka hem till hemmabasen (för långt/sent)
+            is_hotel = False
+            
+            if idx < len(route) - 1:  # Inte sista platsen
+                # Beräkna avstånd hem från denna plats
+                distance_home = self.calculate_distance(
+                    location.latitude, location.longitude,
+                    team.home_base[0], team.home_base[1]
+                )
+                drive_time_home = distance_home / driving_speed
+                num_pauses_home = int(drive_time_home / 2)
+                total_drive_time_home = drive_time_home + (num_pauses_home * pause_time)
+                
+                # Kontrollera om nästa plats kräver ny dag
+                next_location = route[idx + 1]
+                distance_to_next = self.calculate_distance(
+                    location.latitude, location.longitude,
+                    next_location.latitude, next_location.longitude
+                )
+                drive_time_to_next = distance_to_next / driving_speed
+                num_pauses_next = int(drive_time_to_next / 2)
+                total_drive_time_to_next = drive_time_to_next + (num_pauses_next * pause_time) + navigation_time
+                
+                # Om nästa besök orsakar ny dag OCH vi är långt från hemmabasen = hotellnatt
+                would_need_new_day = (daily_work_time + location.work_time + next_location.work_time > work_hours or 
+                                     daily_drive_time + total_drive_time + total_drive_time_to_next > max_drive_hours)
+                
+                # Hotell behövs om vi måste starta ny dag OCH (vi är långt hemifrån ELLER har för lite tid att åka hem)
+                far_from_home = distance_home > 100  # km
+                late_in_day = daily_drive_time + total_drive_time + total_drive_time_home > max_drive_hours
+                
+                if would_need_new_day and (far_from_home or late_in_day):
+                    is_hotel = True
             
             # Skapa segment
             segment = RouteSegment(
