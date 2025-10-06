@@ -1,300 +1,326 @@
-# 🗺️ Universal Route Optimizer
+# 🏠 Route Optimizer - Hemmabasuppdatering v2.1
 
-En komplett ruttoptimerings-applikation för Migration (laddpunkter) och Service-uppdrag.
+## 📦 Paketinnehåll
 
-## 🌟 Funktioner
+Denna mapp innehåller **10 filer** för att uppdatera din Route Optimizer med flexibel hemmabashantering.
 
-### För Migration (Laddpunkter)
-- ✅ kWh-baserad filtrering per kund
-- ✅ Summering av alla områden per kund
-- ✅ Exkludering av specifika kunder
-- ✅ Optimering för installationstid
-- ✅ Geografiska begränsningar
-
-### För Service
-- ✅ Prioritetsbaserad schemaläggning
-- ✅ Tidsfönster för besök
-- ✅ Snabbare arbetstakt
-- ✅ Flexibel konfiguration
-
-### Generellt
-- 🎯 Automatisk teamoptimering (1-15 team)
-- 🗺️ Interaktiv karta med Folium
-- 📊 Detaljerad Excel-export med 3 flikar
-- 💰 Komplett kostnadsberäkning
-- 🚗 Realistisk ruttplanering med pauser
-- 🏨 Automatisk hotellplanering
-
-## 📋 Installation
-
-### 1. Klona eller ladda ner filerna
-
-```bash
-# Alla nödvändiga filer:
-# - app.py
-# - optimizer.py
-# - excel_export.py
-# - map_visualization.py
-# - requirements.txt
+```
+RouteOptimizer-Hemmabasuppdatering/
+│
+├── 📖 Dokumentation (7 filer)
+│   ├── START_HÄR.md ⭐ LÄS DENNA FÖRST!
+│   ├── CHECKLISTA.md
+│   ├── SNABBSTART.md
+│   ├── IMPLEMENTATION_GUIDE.md
+│   ├── HEMMABASHANTERING_GUIDE.md
+│   ├── VISUELL_GUIDE.md
+│   └── README_HEMMABASUPPDATERING.md
+│
+└── 💻 Kodfiler (3 filer)
+    ├── optimizer_updated.py
+    ├── home_base_ui_components.py
+    └── exempel_hemmabashantering.py
 ```
 
-### 2. Installera dependencies
+## 🚀 Kom igång på 30 sekunder
+
+1. **Börja här:** Öppna `START_HÄR.md`
+2. **Snabbinstallation:** Följ `SNABBSTART.md` (5 minuter)
+3. **Klar!** Testa din uppdaterade app
+
+## ✨ Vad får du?
+
+### 4 Hemmabaslägen
+- 🔄 **Automatisk** - Som tidigare, helt automatiskt
+- 🎯 **Begränsad** - Välj specifika tillåtna städer
+- 🔧 **Manuell** - Tilldela team till städer
+- 📍 **Anpassad** - Ange egna koordinater
+
+### Smart AI
+- 💡 AI-förslag baserat på datadensitet
+- 📊 Intelligent rekommendationer
+- 🎯 Optimerad hemmabasplacering
+
+### 30 Svenska städer
+- Stockholm, Göteborg, Malmö...
+- Förkonfigurerade koordinater
+- Enkel att använda
+
+## 📚 Filguide
+
+### Börja med dessa:
+
+| Fil | Tid | Syfte |
+|-----|-----|-------|
+| **START_HÄR.md** | 2 min | Översikt och vägledning |
+| **CHECKLISTA.md** | 2 min | Steg-för-steg implementation |
+| **SNABBSTART.md** | 5 min | Installation och testning |
+
+### Implementering:
+
+| Fil | Tid | Syfte |
+|-----|-----|-------|
+| **IMPLEMENTATION_GUIDE.md** | 10 min | Detaljerade kodinstruktioner |
+| **optimizer_updated.py** | - | Ny optimeringsmotor |
+| **home_base_ui_components.py** | - | UI-komponenter att lägga till |
+
+### Fördjupning:
+
+| Fil | Tid | Syfte |
+|-----|-----|-------|
+| **HEMMABASHANTERING_GUIDE.md** | 15 min | Användarguide och exempel |
+| **VISUELL_GUIDE.md** | 10 min | Diagram och flödesscheman |
+| **exempel_hemmabashantering.py** | 5 min | Python-exempel |
+
+### Översikt:
+
+| Fil | Tid | Syfte |
+|-----|-----|-------|
+| **README_HEMMABASUPPDATERING.md** | 5 min | Sammanfattning av allt |
+
+## ⚡ Snabbinstallation
 
 ```bash
-pip install -r requirements.txt
-```
+# 1. Säkerhetskopiera
+cp optimizer.py optimizer_backup.py
+cp app.py app_backup.py
 
-### 3. Kör applikationen
+# 2. Ersätt optimizer
+cp optimizer_updated.py optimizer.py
 
-```bash
+# 3. Uppdatera app.py
+# (Se IMPLEMENTATION_GUIDE.md för detaljer)
+
+# 4. Testa
 streamlit run app.py
 ```
 
-Applikationen öppnas automatiskt i din webbläsare på `http://localhost:8501`
+## 🎯 Användningsexempel
 
-## 📊 Dataformat
-
-### Migration (Laddpunkter)
-Din Excel/CSV-fil ska innehålla följande kolumner:
-
-| Kundnamn | Latitud | Longitud | Antal uttag | kWh 2025 |
-|----------|---------|----------|-------------|----------|
-| Företag AB | 59.3293 | 18.0686 | 5 | 150000 |
-| Bolag XYZ | 57.7089 | 11.9746 | 3 | 120000 |
-
-### Service
-Din Excel/CSV-fil ska innehålla följande kolumner:
-
-| Customer Name | Latitude | Longitude | Service Type | Priority |
-|---------------|----------|-----------|--------------|----------|
-| Company A | 59.3293 | 18.0686 | Maintenance | 1 |
-| Company B | 57.7089 | 11.9746 | Repair | 2 |
-
-**Priority:** 1 = Högst prioritet, 5 = Lägst prioritet
-
-## 🚀 Användning
-
-### Steg 1: Välj Uppdragstyp
-I sidopanelen, välj antingen:
-- 🔌 Migration (Laddpunkter)
-- 🔧 Service
-
-### Steg 2: Ladda upp data
-Klicka på "Välj fil" och ladda upp din Excel eller CSV-fil.
-
-### Steg 3: Konfigurera parametrar
-
-#### Kostnadsparametrar
-- **Arbetskostnad:** Kostnad per timme per person
-- **Antal personer:** Team-storlek (1-5 personer)
-- **Fordonskostnad:** Kostnad per km
-- **Hotellkostnad:** Kostnad per natt per person
-
-#### Begränsningar
-- **Max avstånd från hemmabas:** 100-1000 km
-- **Max körsträcka per dag:** 100-800 km
-- **Arbetstimmar per dag:** 6-12 timmar
-- **Max körtimmar per dag:** 3-8 timmar
-
-#### Filter (Migration)
-- **Minimum kWh:** Kunder under denna gräns exkluderas
-- **Exkludera kunder:** Lista med kundnamn att hoppa över
-
-#### Filter (Service)
-- **Minimum prioritet:** Endast ärenden med denna prioritet eller högre
-- **Prioritera akuta först:** Högprioritetsärenden schemaläggs först
-
-### Steg 4: Optimera
-Klicka på "🚀 Optimera Rutt & Beräkna Kostnad"
-
-Applikationen testar automatiskt olika antal team (min-max) och väljer den mest kostnadseffektiva konfigurationen.
-
-### Steg 5: Analysera resultat
-
-#### 📈 Översikt
-- Sammanfattning per team
-- Visuella diagram
-- Kostnadsjämförelser
-
-#### 🗺️ Karta
-- Interaktiv Folium-karta
-- Färgkodade rutter per team
-- Numrerade stopp
-- Hotellnätter markerade
-- Ladda ner som HTML-fil
-
-#### 📋 Detaljplan
-Excel-rapport med 3 flikar:
-1. **Sammanfattning:** Översikt per team med kostnader
-2. **Detaljerat Schema:** Varje besök med tider och koordinater
-3. **Daglig Ruttanalys:** Sammanfattning per arbetsdag
-
-#### 💰 Kostnadsnedbrytning
-- Arbetskostnad
-- Körkostnad (personal under körning)
-- Drivmedelskostnad
-- Hotellkostnad
-- Total kostnad per område/enhet
-
-## 🧮 Hur optimeringsalgoritmen fungerar
-
-### 1. Databearbetning
-- Validerar och rensar data
-- Applicerar filter (kWh-summa eller prioritet)
-- Exkluderar specifika kunder
-
-### 2. Team-allokering
-- Testar olika antal team (min till max)
-- Skapar hemmabaser i olika svenska städer
-- Fördelar platser geografiskt till närmaste team
-
-### 3. Ruttoptimering
-För varje team:
-- **Nearest Neighbor:** Startar från klustrets centrum
-- **2-opt förbättring:** Optimerar ruttsegment iterativt
-- **Tidskalkylering:** Beräknar realistiska arbetstider
-
-### 4. Schemaläggning
-- Respekterar max körtimmar per dag
-- Lägger till pauser var 2:e timme
-- Inkluderar navigationstid
-- Schemalägger hotellnätter automatiskt
-- Optimerar arbetsbelastning per dag
-
-### 5. Kostnadsberäkning
-- Personal: Arbete + körning
-- Transport: Drivmedel baserat på verklig sträcka
-- Logi: Hotell + traktamente
-- Väljer mest kostnadseffektiv team-konfiguration
-
-## 📁 Filstruktur
-
+### Exempel 1: Begränsa till storstäder
 ```
-route-optimizer/
-│
-├── app.py                    # Huvudapplikation (Streamlit UI)
-├── optimizer.py              # Optimeringsalgoritmer
-├── excel_export.py           # Excel-rapportgenerering
-├── map_visualization.py      # Kartskapande med Folium
-├── requirements.txt          # Python dependencies
-└── README.md                # Denna fil
+Läge: Begränsad
+Städer: Stockholm, Göteborg, Malmö
+→ Endast dessa tre städer används
 ```
 
-## 🔧 Tekniska detaljer
-
-### Algoritmer
-- **Haversine-formel:** Beräknar verkliga avstånd mellan koordinater
-- **Nearest Neighbor:** Initial ruttplanering (O(n²))
-- **2-opt optimering:** Förbättrar rutt genom att minimera körsträcka
-- **Greedy assignment:** Fördelar platser till närmaste team
-
-### Beräkningar
-- **Vägfaktor:** 1.3x fågelvägen (30% längre via vägar)
-- **Körshastighet:** Genomsnitt 80 km/h
-- **Pauser:** 15 min per 2 timmar körning
-- **Navigation:** 3 min per plats
-
-### Prestanda
-- Hanterar 1000+ platser
-- Testar 1-15 team-konfigurationer
-- Optimering tar ca 10-60 sekunder beroende på datamängd
-
-## 🎨 Anpassningar
-
-### Lägg till nya hemmabaser
-I `optimizer.py`, uppdatera `create_teams()` metoden:
-
-```python
-home_bases = [
-    (lat, lon, "Stad"),
-    # Lägg till fler...
-]
+### Exempel 2: Fasta team
+```
+Läge: Manuell
+Team 1 → Stockholm
+Team 2 → Göteborg
+→ Exakt kontroll
 ```
 
-### Ändra standardvärden
-I `app.py`, uppdatera `PROFILES` dictionary:
-
-```python
-PROFILES = {
-    'migration': {
-        'default_labor_cost': 500,  # Ändra här
-        # ...
-    }
-}
+### Exempel 3: Egna kontor
+```
+Läge: Anpassad
+59.33, 18.07, Huvudkontor
+→ Dina exakta koordinater
 ```
 
-### Anpassa kartan
-I `map_visualization.py`, justera:
-- Färgpalett
-- Markörer
-- Popup-innehåll
-- Kartlager
+## ✅ Verifieringschecklista
 
-## 🐛 Felsökning
+Efter installation:
 
-### Problem: "Module not found"
-**Lösning:** Kör `pip install -r requirements.txt`
+- [ ] optimizer.py ersatt
+- [ ] app.py uppdaterad (3 ändringar)
+- [ ] App startar utan fel
+- [ ] "Hemmabashantering" syns i UI
+- [ ] Alla 4 lägen fungerar
+- [ ] Test-optimering lyckades
 
-### Problem: Optimering tar för lång tid
-**Lösning:** 
-- Minska antal test-teams (min_teams - max_teams)
-- Öka min_filter_value för att reducera datamängd
-- Kontrollera att koordinater är korrekta
+## 🐛 Vanliga problem
 
-### Problem: Kartan visas inte
-**Lösning:**
-- Kontrollera att folium är installerat
-- Testa i en annan webbläsare
-- Ladda ner HTML-filen och öppna lokalt
+**Problem:** HomeBaseManager not found  
+**Lösning:** optimizer.py inte ersatt korrekt
 
-### Problem: Excel-export misslyckas
-**Lösning:**
-- Kontrollera att xlsxwriter och openpyxl är installerade
-- Stäng eventuella öppna Excel-filer med samma namn
+**Problem:** UI-komponenter saknas  
+**Lösning:** Kod inte tillagd i rätt sektion
 
-## 📝 Exempel på användning
+**Problem:** Config-fel  
+**Lösning:** Alla tre parametrar inte tillagda
 
-### Scenario 1: Laddpunktsinstallation
+Se SNABBSTART.md för mer felsökning.
+
+## 📈 Fördelar
+
+### För användare:
+- ✅ Mer kontroll över hemmabaser
+- ✅ Intelligenta AI-förslag
+- ✅ Enkel att använda
+- ✅ Verklighetstrogna scenarier
+
+### För organisationer:
+- ✅ Bättre kostnadsoptimering
+- ✅ Använd verkliga kontor
+- ✅ Flexibel konfiguration
+- ✅ Datadrivna beslut
+
+## 🔄 Kompatibilitet
+
+- ✅ **Bakåtkompatibel:** Automatiskt läge = samma som tidigare
+- ✅ **Inkrementell:** Implementera stegvis
+- ✅ **Testbar:** Omfattande testplan
+- ✅ **Säker:** Säkerhetskopieringar inkluderade
+
+## 📊 Innehållsöversikt
+
 ```
-Uppdragstyp: Migration
-Data: 250 laddpunkter hos 50 kunder
-Filter: Min 100,000 kWh per kund
-Teams: Testar 5-8 team
-Resultat: 6 team, 42 dagar, 842,500 kr
+Total storlek: ~127 KB
+Antal filer: 10
+   - Dokumentation: 7 filer (~83 KB)
+   - Kod: 3 filer (~48 KB)
+
+Estimerad installationstid: 5-15 minuter
+   - Snabb: 5 minuter (följ checklistan)
+   - Normal: 10 minuter (läs lite dokumentation)
+   - Grundlig: 15 minuter (läs all dokumentation)
 ```
 
-### Scenario 2: Akut service
+## 🎓 Rekommenderat arbetsflöde
+
+### För erfarna utvecklare:
 ```
-Uppdragstyp: Service
-Data: 80 serviceärenden
-Filter: Prioritet 1-2
-Teams: Testar 3-5 team
-Resultat: 4 team, 12 dagar, 385,000 kr
+1. START_HÄR.md (2 min)
+2. CHECKLISTA.md (2 min)
+3. Implementera (5 min)
+4. Testa (2 min)
+Total: ~11 minuter
 ```
 
-## 🤝 Support
+### För nya användare:
+```
+1. START_HÄR.md (2 min)
+2. VISUELL_GUIDE.md (10 min)
+3. SNABBSTART.md (5 min)
+4. IMPLEMENTATION_GUIDE.md (10 min)
+5. Implementera (10 min)
+6. HEMMABASHANTERING_GUIDE.md (15 min)
+Total: ~52 minuter
+```
 
-För frågor eller problem:
-1. Kontrollera denna README
-2. Kolla teknisk information i expanders vid fel
-3. Verifiera dataformat mot exempel
+### För produktionsmiljö:
+```
+1. Läs all dokumentation (30 min)
+2. Testa i utvecklingsmiljö (15 min)
+3. Dokumentera för team (10 min)
+4. Implementera i produktion (10 min)
+5. Utbilda team (30 min)
+Total: ~95 minuter
+```
 
-## 📜 Licens
+## 🔗 Dokumentationsstruktur
+
+```
+START_HÄR.md
+    │
+    ├─→ Snabb start? → CHECKLISTA.md
+    │                      ↓
+    │                  SNABBSTART.md
+    │                      ↓
+    │              IMPLEMENTATION_GUIDE.md
+    │
+    ├─→ Vill förstå? → VISUELL_GUIDE.md
+    │                      ↓
+    │          HEMMABASHANTERING_GUIDE.md
+    │
+    └─→ Översikt? → README_HEMMABASUPPDATERING.md
+```
+
+## 💾 Backup-strategi
+
+**Innan installation:**
+```bash
+# Skapa backup
+cp optimizer.py optimizer_backup_$(date +%Y%m%d).py
+cp app.py app_backup_$(date +%Y%m%d).py
+
+# Eller använd git
+git add .
+git commit -m "Backup innan hemmabasuppdatering"
+git tag -a "pre-homebase-update" -m "Before v2.1"
+```
+
+**Återställning vid problem:**
+```bash
+# Från backup-filer
+cp optimizer_backup.py optimizer.py
+cp app_backup.py app.py
+
+# Eller från git
+git checkout pre-homebase-update
+```
+
+## 🎉 Efter installation
+
+### Testa dessa scenarion:
+
+1. **Automatiskt läge** (baseline)
+   - Ladda testdata
+   - Optimera med automatiskt läge
+   - Notera resultat
+
+2. **Begränsat läge** (med AI)
+   - Välj 5 städer
+   - Använd AI-förslag
+   - Jämför med automatiskt
+
+3. **Manuellt läge** (specifik)
+   - Tilldela 3 team till specifika städer
+   - Optimera
+   - Verifiera hemmabasplacering
+
+4. **Anpassat läge** (egna kontor)
+   - Ange 2-3 egna koordinater
+   - Optimera
+   - Kontrollera att koordinater används
+
+### Nästa steg:
+
+- 📖 Läs HEMMABASHANTERING_GUIDE.md
+- 🧪 Experimentera med olika lägen
+- 📊 Jämför kostnader mellan lägen
+- 📝 Dokumentera best practices
+- 👥 Utbilda ditt team
+
+## 📞 Support
+
+### Självhjälp:
+1. START_HÄR.md → Översikt
+2. SNABBSTART.md → Felsökning
+3. CHECKLISTA.md → Verifiering
+4. IMPLEMENTATION_GUIDE.md → Detaljer
+
+### Problem kvarstår?
+- Kontrollera logs
+- Testa med dummy-data
+- Återställ från backup
+- Börja om från början
+
+## 📄 Licens
 
 Proprietär programvara. Alla rättigheter förbehållna.
 
-## 🔄 Versionshistorik
+## 🙏 Tack
 
-### v2.0 (Aktuell)
-- ✅ Faktisk optimeringsalgoritm
-- ✅ Interaktiv Folium-karta
-- ✅ Excel-export med 3 flikar
-- ✅ Komplett kostnadsberäkning
-- ✅ Stöd för både Migration och Service
-
-### v1.0
-- Initial version med UI och placeholder-data
+Tack för att du väljer Route Optimizer! Vi hoppas att dessa förbättringar gör din ruttplanering ännu mer effektiv och flexibel.
 
 ---
 
-**Skapad med ❤️ för effektiv ruttplanering**
+## 🚀 Börja nu!
+
+```bash
+# Öppna START_HÄR.md och följ instruktionerna!
+# Det tar bara några minuter att komma igång.
+```
+
+---
+
+**Version:** 2.1  
+**Datum:** 2025-10-06  
+**Status:** Redo för produktion ✅  
+**Filer:** 10 totalt (7 dokumentation + 3 kod)  
+**Storlek:** ~127 KB  
+**Installationstid:** 5-15 minuter  
+**Funktioner:** 4 hemmabaslägen + AI-förslag + 30 svenska städer
