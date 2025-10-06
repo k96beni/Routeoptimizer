@@ -1,5 +1,5 @@
 """
-Route Optimizer Engine
+Route Optimizer Engine - Uppdaterad med flexibel hemmabashantering
 Hanterar ruttoptimering, kostnadsberäkningar och schemaläggning
 """
 
@@ -56,6 +56,129 @@ class TeamRoute:
     total_drive_time: float
     hotel_nights: int
     total_cost: float
+
+
+class HomeBaseManager:
+    """Hanterar hemmabaser och deras tilldelning"""
+    
+    # Komplett lista över svenska städer
+    AVAILABLE_CITIES = [
+        # Top 10
+        (59.3293, 18.0686, "Stockholm"),
+        (57.7089, 11.9746, "Göteborg"),
+        (55.6050, 13.0038, "Malmö"),
+        (59.8586, 17.6389, "Uppsala"),
+        (59.2753, 15.2134, "Örebro"),
+        (58.4108, 15.6214, "Linköping"),
+        (56.1612, 15.5869, "Växjö"),
+        (56.0465, 12.6945, "Helsingborg"),
+        (62.3908, 17.3069, "Sundsvall"),
+        (58.5877, 16.1924, "Norrköping"),
+        
+        # 11-20
+        (57.7826, 14.1618, "Jönköping"),
+        (63.8258, 20.2630, "Umeå"),
+        (60.6749, 17.1413, "Gävle"),
+        (59.6099, 16.5448, "Västerås"),
+        (59.6749, 14.8702, "Karlstad"),
+        (59.0392, 12.5045, "Borås"),
+        (59.3793, 13.5039, "Eskilstuna"),
+        (65.5848, 22.1547, "Luleå"),
+        (56.8777, 14.8091, "Kalmar"),
+        (55.9929, 14.1579, "Kristianstad"),
+        
+        # 21-30
+        (63.1792, 14.6357, "Östersund"),
+        (58.5947, 13.5090, "Skövde"),
+        (57.1063, 12.2580, "Halmstad"),
+        (60.1282, 18.6435, "Norrtälje"),
+        (59.2741, 18.0825, "Södertälje"),
+        (58.7527, 17.0085, "Enköping"),
+        (62.6308, 17.9411, "Härnösand"),
+        (56.0371, 14.8533, "Karlskrona"),
+        (67.8558, 20.2253, "Kiruna"),
+        (58.2544, 12.3717, "Trollhättan"),
+    ]
+    
+    @classmethod
+    def get_city_names(cls) -> List[str]:
+        """Returnerar lista över alla tillgängliga städer"""
+        return [city[2] for city in cls.AVAILABLE_CITIES]
+    
+    @classmethod
+    def get_city_by_name(cls, name: str) -> Optional[Tuple[float, float, str]]:
+        """Hämta stad baserat på namn"""
+        for city in cls.AVAILABLE_CITIES:
+            if city[2] == name:
+                return city
+        return None
+    
+    @classmethod
+    def get_cities_by_names(cls, names: List[str]) -> List[Tuple[float, float, str]]:
+        """Hämta flera städer baserat på namn"""
+        cities = []
+        for name in names:
+            city = cls.get_city_by_name(name)
+            if city:
+                cities.append(city)
+        return cities
+    
+    @classmethod
+    def suggest_home_bases(cls, locations: List[Location], num_bases: int, 
+                          allowed_cities: Optional[List[str]] = None) -> List[Tuple[float, float, str]]:
+        """
+        Föreslår optimala hemmabaser baserat på datadensitet
+        
+        Args:
+            locations: Lista med platser att besöka
+            num_bases: Antal hemmabaser som behövs
+            allowed_cities: Lista med tillåtna städer (None = alla)
+        
+        Returns:
+            Lista med föreslagna hemmabaser
+        """
+        if not locations:
+            return []
+        
+        # Filtrera tillåtna städer
+        available_cities = cls.AVAILABLE_CITIES
+        if allowed_cities:
+            available_cities = cls.get_cities_by_names(allowed_cities)
+        
+        if not available_cities:
+            return []
+        
+        # Beräkna densitet för varje stad
+        city_scores = []
+        
+        for city in available_cities:
+            lat, lon, name = city
+            
+            # Beräkna genomsnittligt avstånd till alla platser
+            distances = []
+            for loc in locations:
+                dist = RouteOptimizer.static_calculate_distance(
+                    lat, lon, loc.latitude, loc.longitude
+                )
+                distances.append(dist)
+            
+            avg_distance = np.mean(distances)
+            min_distance = np.min(distances)
+            
+            # Räkna platser inom 200 km
+            nearby_count = sum(1 for d in distances if d <= 200)
+            
+            # Score: lägre är bättre (närmare till data)
+            # Vikta närhet och antal närliggande platser
+            score = avg_distance * 0.6 - nearby_count * 0.4 - min_distance * 0.2
+            
+            city_scores.append((score, city))
+        
+        # Sortera och returnera bästa städerna
+        city_scores.sort(key=lambda x: x[0])
+        suggested = [city for score, city in city_scores[:num_bases]]
+        
+        return suggested
 
 
 class RouteOptimizer:
@@ -169,8 +292,11 @@ class RouteOptimizer:
         self.locations = locations
         return locations
     
-    def calculate_distance(self, lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    @staticmethod
+    def static_calculate_distance(lat1: float, lon1: float, lat2: float, lon2: float, 
+                                  road_factor: float = 1.3) -> float:
         """
+        Statisk version av calculate_distance för att använda utanför instans
         Beräknar avstånd mellan två koordinater med Haversine-formeln
         Returnerar avstånd i km
         """
@@ -186,10 +312,15 @@ class RouteOptimizer:
         
         distance = R * c
         
-        # Applicera vägfaktor
-        road_factor = self.config.get('road_factor', 1.3)
-        
         return distance * road_factor
+    
+    def calculate_distance(self, lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+        """
+        Beräknar avstånd mellan två koordinater med Haversine-formeln
+        Returnerar avstånd i km
+        """
+        road_factor = self.config.get('road_factor', 1.3)
+        return self.static_calculate_distance(lat1, lon1, lat2, lon2, road_factor)
     
     def skip_weekends(self, dt: datetime) -> datetime:
         """
@@ -228,66 +359,30 @@ class RouteOptimizer:
         
         return valid_locations
     
-    def create_distance_matrix(self, locations: List[Location]) -> np.ndarray:
-        """Skapar avståndsmatris för alla platser"""
+    def sort_locations_by_deadline(self, locations: List[Location], sort_by: str = 'both') -> List[Location]:
+        """
+        Sorterar platser baserat på prioritet/deadline
         
-        n = len(locations)
-        matrix = np.zeros((n, n))
-        
-        for i in range(n):
-            for j in range(i+1, n):
-                dist = self.calculate_distance(
-                    locations[i].latitude, locations[i].longitude,
-                    locations[j].latitude, locations[j].longitude
-                )
-                matrix[i][j] = dist
-                matrix[j][i] = dist
-        
-        return matrix
+        Args:
+            locations: Lista med platser
+            sort_by: 'priority', 'deadline', eller 'both'
+        """
+        if sort_by == 'priority':
+            # Sortera efter filter_value (lägre värde = högre prioritet)
+            return sorted(locations, key=lambda x: x.filter_value)
+        else:
+            # Default: sortera efter prioritet
+            return sorted(locations, key=lambda x: x.filter_value)
     
-    def nearest_neighbor_route(self, locations: List[Location], 
-                               start_location: Location) -> List[Location]:
+    def optimize_route_2opt(self, route: List[Location], max_iterations: int = 50) -> List[Location]:
         """
-        Enkel nearest neighbor algoritm för ruttplanering
-        Börjar från start_location och väljer alltid närmaste obesökta plats
+        Förbättrar rutt med 2-opt algoritm
         """
-        
-        if not locations:
-            return []
-        
-        unvisited = locations.copy()
-        route = [start_location]
-        
-        # Ta bort start från unvisited om den finns där
-        if start_location in unvisited:
-            unvisited.remove(start_location)
-        
-        current = start_location
-        
-        while unvisited:
-            # Hitta närmaste obesökta plats
-            nearest = min(unvisited, key=lambda loc: self.calculate_distance(
-                current.latitude, current.longitude,
-                loc.latitude, loc.longitude
-            ))
-            
-            route.append(nearest)
-            unvisited.remove(nearest)
-            current = nearest
-        
-        return route
-    
-    def optimize_route_2opt(self, route: List[Location], max_iterations: int = 100) -> List[Location]:
-        """
-        2-opt optimering för att förbättra rutt
-        Försöker byta ordning på segment för att minska total sträcka
-        """
-        
-        if len(route) < 4:
+        if len(route) <= 3:
             return route
         
-        best_route = route.copy()
         improved = True
+        best_route = route.copy()
         iteration = 0
         
         while improved and iteration < max_iterations:
@@ -299,8 +394,8 @@ class RouteOptimizer:
                     if j - i == 1:
                         continue
                     
-                    # Beräkna nuvarande kostnad
-                    current_cost = (
+                    # Beräkna nuvarande distans
+                    current_dist = (
                         self.calculate_distance(
                             best_route[i-1].latitude, best_route[i-1].longitude,
                             best_route[i].latitude, best_route[i].longitude
@@ -311,8 +406,8 @@ class RouteOptimizer:
                         )
                     )
                     
-                    # Beräkna ny kostnad efter byte
-                    new_cost = (
+                    # Beräkna ny distans efter swap
+                    new_dist = (
                         self.calculate_distance(
                             best_route[i-1].latitude, best_route[i-1].longitude,
                             best_route[j-1].latitude, best_route[j-1].longitude
@@ -323,316 +418,205 @@ class RouteOptimizer:
                         )
                     )
                     
-                    if new_cost < current_cost:
-                        # Vänd segmentet
+                    # Om bättre, gör swap
+                    if new_dist < current_dist:
                         best_route[i:j] = reversed(best_route[i:j])
                         improved = True
         
         return best_route
     
-    def calculate_route_segments(self, route: List[Location], 
-                                 team: Team) -> List[RouteSegment]:
-        """Beräknar detaljerade segment för en rutt med tider och kostnader"""
+    def calculate_route_segments(self, route: List[Location], team: Team) -> List[RouteSegment]:
+        """
+        Beräknar detaljerade segment med tider för en rutt
+        """
+        if not route:
+            return []
         
         segments = []
         
-        if not route:
-            return segments
-        
-        # Starta från hemmabas
+        # Starta från hemmabasen
+        current_lat, current_lon = team.home_base
         current_time = datetime.now().replace(hour=7, minute=0, second=0, microsecond=0)
-        current_time = self.skip_weekends(current_time)  # Starta inte på helg
-        current_location = (team.home_base[0], team.home_base[1])
+        current_time = self.skip_weekends(current_time)
         
-        daily_drive_time = 0
-        daily_work_time = 0
-        daily_distance = 0
-        daily_total_time = 0  # Total tid från hemmet
-        
+        # Hämta konfiguration
         work_hours = self.config.get('work_hours', 8)
         max_drive_hours = self.config.get('max_drive_hours', 5)
-        max_daily_distance = self.config.get('max_daily_distance', 400)
-        max_total_day_hours = 8  # Total dagtid från hemmet till hem/hotell
+        pause_time = self.config.get('pause_time', 15) / 60  # Konvertera till timmar
+        navigation_time = self.config.get('navigation_time', 3) / 60  # Konvertera till timmar
+        driving_speed = self.config.get('driving_speed', 80)  # km/h
         
-        # Kostnadsparametrar för hotellbeslut
-        labor_cost_per_hour = self.config.get('labor_cost', 500)
-        team_size = self.config.get('team_size', 2)
-        vehicle_cost_per_km = self.config.get('vehicle_cost', 2.5)
-        hotel_cost_per_night = self.config.get('hotel_cost', 2000)
+        daily_work_time = 0
+        daily_drive_time = 0
         
-        for i, location in enumerate(route):
-            # Beräkna körsträcka och tid
+        for location in route:
+            # Beräkna avstånd och körtid
             distance = self.calculate_distance(
-                current_location[0], current_location[1],
+                current_lat, current_lon,
                 location.latitude, location.longitude
             )
+            drive_time = distance / driving_speed
             
-            drive_time = distance / 80  # Antag 80 km/h genomsnittshastighet
+            # Lägg till pauser
+            num_pauses = int(drive_time / 2)
+            total_drive_time = drive_time + (num_pauses * pause_time) + navigation_time
             
-            # Lägg till navigationstid
-            nav_time = self.config.get('navigation_time', 3) / 60
-            drive_time += nav_time
-            
-            # Lägg till pauser var 2:e timme
-            pause_time = self.config.get('pause_time', 15) / 60
-            if daily_drive_time + drive_time > 2:
-                drive_time += pause_time
-            
-            # Kolla om vi behöver överväga hotell eller hemresa
-            needs_hotel = False
-            
-            # Beräkna vad total dagtid skulle bli efter detta besök
-            projected_total_time = daily_total_time + drive_time + location.work_time
-            
-            # Beräkna avstånd från nuvarande plats till hemmabasen
-            distance_to_home = self.calculate_distance(
-                location.latitude, location.longitude,
-                team.home_base[0], team.home_base[1]
-            )
-            time_to_home = distance_to_home / 80
-            
-            # Kontrollera om vi kan hinna hem inom 8-timmarsgränsen
-            total_time_with_home_return = projected_total_time + time_to_home
-            
-            # VIKTIGT: Kontrollera om IDAG är fredag
-            is_friday = current_time.weekday() == 4  # Fredag = 4
-            
-            # Om vi når gränserna för dagen, besluta om hotell eller hemresa
-            if (daily_drive_time + drive_time > max_drive_hours or
-                daily_work_time + location.work_time > work_hours or
-                daily_distance + distance > max_daily_distance or
-                projected_total_time > max_total_day_hours):
+            # Kontrollera om vi behöver ny dag
+            if (daily_work_time + location.work_time > work_hours or 
+                daily_drive_time + total_drive_time > max_drive_hours):
                 
-                # ============================================================
-                # BESLUTSREGLER (i prioritetsordning):
-                # ============================================================
+                # Ny dag
+                is_hotel = True
+                current_time = current_time.replace(hour=7, minute=0, second=0, microsecond=0)
+                current_time = current_time + timedelta(days=1)
+                current_time = self.skip_weekends(current_time)
                 
-                # REGEL 1: Om idag är fredag -> MÅSTE åka hem (HÖGSTA PRIORITET)
-                if is_friday:
-                    needs_hotel = False
-                    current_time = current_time.replace(hour=7, minute=0) + timedelta(days=1)
-                    current_time = self.skip_weekends(current_time)
-                    current_location = team.home_base
-                    daily_drive_time = 0
-                    daily_work_time = 0
-                    daily_distance = 0
-                    daily_total_time = 0
-                    distance += distance_to_home
-                    drive_time += time_to_home
-                
-                # REGEL 2: Om inom 100 km från hemma -> MÅSTE åka hem
-                elif distance_to_home <= 100:
-                    needs_hotel = False
-                    current_time = current_time.replace(hour=7, minute=0) + timedelta(days=1)
-                    current_time = self.skip_weekends(current_time)
-                    current_location = team.home_base
-                    daily_drive_time = 0
-                    daily_work_time = 0
-                    daily_distance = 0
-                    daily_total_time = 0
-                    distance += distance_to_home
-                    drive_time += time_to_home
-                
-                # REGEL 3: Om hemresa skulle göra dagen längre än 8h -> MÅSTE ta hotell
-                elif total_time_with_home_return > max_total_day_hours:
-                    needs_hotel = True
-                    current_time = current_time.replace(hour=7, minute=0) + timedelta(days=1)
-                    current_time = self.skip_weekends(current_time)
-                    daily_drive_time = 0
-                    daily_work_time = 0
-                    daily_distance = 0
-                    daily_total_time = 0
-                
-                # REGEL 4: Kostnadsjämförelse (med 10% hemresa-fördel)
-                else:
-                    # Avstånd från hemmabasen till nästa plats
-                    if i + 1 < len(route):
-                        distance_from_home_to_next = self.calculate_distance(
-                            team.home_base[0], team.home_base[1],
-                            route[i + 1].latitude, route[i + 1].longitude
-                        )
-                    else:
-                        distance_from_home_to_next = 0
-                    
-                    # Beräkna kostnader för hemresa
-                    home_extra_distance = distance_to_home + distance_from_home_to_next
-                    home_drive_time = home_extra_distance / 80
-                    
-                    home_cost = (
-                        home_extra_distance * vehicle_cost_per_km +
-                        home_drive_time * labor_cost_per_hour * team_size
-                    )
-                    
-                    # Kostnad för hotell
-                    hotel_cost_total = hotel_cost_per_night * team_size
-                    
-                    # Ge hemresa 10% fördel
-                    home_cost_adjusted = home_cost * 0.9
-                    
-                    if hotel_cost_total < home_cost_adjusted:
-                        needs_hotel = True
-                        current_time = current_time.replace(hour=7, minute=0) + timedelta(days=1)
-                        current_time = self.skip_weekends(current_time)
-                        daily_drive_time = 0
-                        daily_work_time = 0
-                        daily_distance = 0
-                        daily_total_time = 0
-                    else:
-                        needs_hotel = False
-                        current_time = current_time.replace(hour=7, minute=0) + timedelta(days=1)
-                        current_time = self.skip_weekends(current_time)
-                        current_location = team.home_base
-                        daily_drive_time = 0
-                        daily_work_time = 0
-                        daily_distance = 0
-                        daily_total_time = 0
-                        distance += distance_to_home
-                        drive_time += time_to_home
+                daily_work_time = 0
+                daily_drive_time = 0
+            else:
+                is_hotel = False
             
-            # Uppdatera dagliga värden
-            daily_drive_time += drive_time
-            daily_distance += distance
-            daily_total_time += drive_time + location.work_time
-            
-            # Ankomst
-            arrival_time = current_time + timedelta(hours=drive_time)
-            
-            # Arbete
+            # Uppdatera tid
+            arrival_time = current_time + timedelta(hours=total_drive_time)
             departure_time = arrival_time + timedelta(hours=location.work_time)
-            daily_work_time += location.work_time
             
             # Skapa segment
             segment = RouteSegment(
                 location=location,
                 arrival_time=arrival_time,
                 departure_time=departure_time,
-                drive_time=drive_time,
+                drive_time=total_drive_time,
                 drive_distance=distance,
                 work_time=location.work_time,
-                is_hotel_night=needs_hotel
+                is_hotel_night=is_hotel
             )
             
             segments.append(segment)
             
             # Uppdatera för nästa iteration
+            current_lat, current_lon = location.latitude, location.longitude
             current_time = departure_time
-            current_location = (location.latitude, location.longitude)
+            daily_work_time += location.work_time
+            daily_drive_time += total_drive_time
         
         return segments
     
-    def calculate_team_costs(self, route: TeamRoute) -> Dict:
-        """Beräknar detaljerade kostnader för ett team"""
-        
-        # Hämta kostnadsparametrar
-        labor_cost_per_hour = self.config.get('labor_cost', 500)
+    def calculate_team_costs(self, team_route: TeamRoute) -> Dict:
+        """
+        Beräknar kostnader för ett team
+        """
+        labor_cost = self.config.get('labor_cost', 500)
         team_size = self.config.get('team_size', 2)
-        vehicle_cost_per_km = self.config.get('vehicle_cost', 2.5)
-        hotel_cost_per_night = self.config.get('hotel_cost', 2000)
+        vehicle_cost = self.config.get('vehicle_cost', 2.5)
+        hotel_cost = self.config.get('hotel_cost', 2000)
         
-        # Beräkna kostnader
-        labor_cost = route.total_work_time * labor_cost_per_hour * team_size
-        drive_labor_cost = route.total_drive_time * labor_cost_per_hour * team_size
-        vehicle_cost = route.total_distance * vehicle_cost_per_km
-        hotel_cost = route.hotel_nights * hotel_cost_per_night * team_size
+        # Arbetskostnad: arbete + körning
+        total_labor_hours = team_route.total_work_time + team_route.total_drive_time
+        cost_labor = total_labor_hours * labor_cost * team_size
         
-        total_cost = labor_cost + drive_labor_cost + vehicle_cost + hotel_cost
+        # Fordonskostnad
+        cost_vehicle = team_route.total_distance * vehicle_cost
+        
+        # Hotellkostnad
+        cost_hotel = team_route.hotel_nights * hotel_cost * team_size
+        
+        total_cost = cost_labor + cost_vehicle + cost_hotel
         
         return {
-            'labor_cost': labor_cost,
-            'drive_labor_cost': drive_labor_cost,
-            'vehicle_cost': vehicle_cost,
-            'hotel_cost': hotel_cost,
+            'labor_cost': cost_labor,
+            'vehicle_cost': cost_vehicle,
+            'hotel_cost': cost_hotel,
             'total_cost': total_cost
         }
     
-    def optimize_team_count(self, min_teams: int = 5, max_teams: int = 8) -> Dict:
+    def create_teams(self, num_teams: int, 
+                    allowed_cities: Optional[List[str]] = None,
+                    team_assignments: Optional[Dict[int, str]] = None,
+                    custom_bases: Optional[List[Tuple[float, float, str]]] = None) -> List[Team]:
         """
-        Testar olika antal team och väljer mest kostnadseffektiv konfiguration
+        Skapar team med flexibel hemmabashantering
+        
+        Args:
+            num_teams: Antal team att skapa
+            allowed_cities: Lista med tillåtna städer (None = alla)
+            team_assignments: Dictionary med team ID -> stad namn för låsta tilldelningar
+            custom_bases: Lista med anpassade hemmabaser (lat, lon, namn)
+        
+        Returns:
+            Lista med Team-objekt
         """
         
-        results = {}
+        # Om custom bases anges, använd dem först
+        if custom_bases:
+            home_bases = custom_bases.copy()
+        else:
+            home_bases = []
         
-        for num_teams in range(min_teams, max_teams + 1):
-            # Skapa teams
-            teams = self.create_teams(num_teams)
-            
-            # Fördela platser till teams
-            team_routes = self.assign_locations_to_teams(teams)
-            
-            # Beräkna total kostnad
-            total_cost = sum(route.total_cost for route in team_routes)
-            total_days = max(route.total_days for route in team_routes)
-            
-            results[num_teams] = {
-                'teams': team_routes,
-                'total_cost': total_cost,
-                'total_days': total_days,
-                'cost_per_location': total_cost / len(self.locations) if self.locations else 0
-            }
+        # Filtrera tillgängliga städer
+        if allowed_cities:
+            available_cities = HomeBaseManager.get_cities_by_names(allowed_cities)
+        else:
+            available_cities = HomeBaseManager.AVAILABLE_CITIES.copy()
         
-        # Hitta bästa konfiguration (lägst kostnad)
-        best_config = min(results.items(), key=lambda x: x[1]['total_cost'])
-        
-        return {
-            'optimal_teams': best_config[0],
-            'results': results,
-            'best_result': best_config[1]
-        }
-    
-    def create_teams(self, num_teams: int) -> List[Team]:
-        """Skapar teams med olika hemmabaser"""
-        
-        # Svenska städer som hemmabaser
-        # HEMMABASER - Sveriges 30 största städer
-        # Välj fritt från listan genom att ändra num_teams
-        home_bases = [
-            # Top 10 - Största städerna
-            (59.3293, 18.0686, "Stockholm"),
-            (57.7089, 11.9746, "Göteborg"),
-            (55.6050, 13.0038, "Malmö"),
-            (59.8586, 17.6389, "Uppsala"),
-            (59.2753, 15.2134, "Örebro"),
-            (58.4108, 15.6214, "Linköping"),
-            (56.1612, 15.5869, "Växjö"),
-            (56.0465, 12.6945, "Helsingborg"),
-            (62.3908, 17.3069, "Sundsvall"),
-            (58.5877, 16.1924, "Norrköping"),
+        # Om vi har för få custom bases, lägg till från allowed cities
+        if len(home_bases) < num_teams:
+            # Ta bort städer som redan finns i custom_bases
+            if custom_bases:
+                custom_names = [base[2] for base in custom_bases]
+                available_cities = [city for city in available_cities if city[2] not in custom_names]
             
-            # 11-20
-            (57.7826, 14.1618, "Jönköping"),
-            (63.8258, 20.2630, "Umeå"),
-            (60.6749, 17.1413, "Gävle"),
-            (59.6099, 16.5448, "Västerås"),
-            (59.6749, 14.8702, "Karlstad"),
-            (59.0392, 12.5045, "Borås"),
-            (59.3793, 13.5039, "Eskilstuna"),
-            (65.5848, 22.1547, "Luleå"),
-            (56.8777, 14.8091, "Kalmar"),
-            (55.9929, 14.1579, "Kristianstad"),
-            
-            # 21-30
-            (63.1792, 14.6357, "Östersund"),
-            (58.5947, 13.5090, "Skövde"),
-            (57.1063, 12.2580, "Halmstad"),
-            (60.1282, 18.6435, "Norrtälje"),
-            (59.2741, 18.0825, "Södertälje"),
-            (58.7527, 17.0085, "Enköping"),
-            (62.6308, 17.9411, "Härnösand"),
-            (56.0371, 14.8533, "Karlskrona"),
-            (67.8558, 20.2253, "Kiruna"),
-            (58.2544, 12.3717, "Trollhättan"),
-        ]
+            # Lägg till från available_cities
+            needed = num_teams - len(home_bases)
+            home_bases.extend(available_cities[:needed])
         
-        # Använd de första num_teams städerna från listan
+        # Skapa teams
         teams = []
         
-        for i in range(min(num_teams, len(home_bases))):
-            team = Team(
-                id=i + 1,
-                home_base=(home_bases[i][0], home_bases[i][1]),
-                home_name=home_bases[i][2]
-            )
-            teams.append(team)
+        # Om team_assignments finns, använd dem för att skapa specifika tilldelningar
+        if team_assignments:
+            assigned_teams = set()
+            
+            # Först: skapa teams med specifika tilldelningar
+            for team_id, city_name in team_assignments.items():
+                if team_id <= num_teams:
+                    city = HomeBaseManager.get_city_by_name(city_name)
+                    if city:
+                        team = Team(
+                            id=team_id,
+                            home_base=(city[0], city[1]),
+                            home_name=city[2]
+                        )
+                        teams.append(team)
+                        assigned_teams.add(team_id)
+            
+            # Sedan: skapa resterande teams från home_bases
+            home_bases_used = [team.home_name for team in teams]
+            remaining_bases = [base for base in home_bases if base[2] not in home_bases_used]
+            
+            base_idx = 0
+            for i in range(1, num_teams + 1):
+                if i not in assigned_teams:
+                    if base_idx < len(remaining_bases):
+                        base = remaining_bases[base_idx]
+                        team = Team(
+                            id=i,
+                            home_base=(base[0], base[1]),
+                            home_name=base[2]
+                        )
+                        teams.append(team)
+                        base_idx += 1
+            
+            # Sortera efter team id
+            teams.sort(key=lambda t: t.id)
+        else:
+            # Ingen specifik tilldelning - använd home_bases i ordning
+            for i in range(min(num_teams, len(home_bases))):
+                team = Team(
+                    id=i + 1,
+                    home_base=(home_bases[i][0], home_bases[i][1]),
+                    home_name=home_bases[i][2]
+                )
+                teams.append(team)
         
         self.teams = teams
         return teams
@@ -762,6 +746,76 @@ class RouteOptimizer:
             team_routes.append(team_route)
         
         return team_routes
+    
+    def optimize_team_count(self, min_teams: int, max_teams: int) -> Dict:
+        """
+        Optimerar antal team genom att testa olika konfigurationer
+        """
+        print(f"\n{'='*60}")
+        print(f"OPTIMERAR ANTAL TEAM ({min_teams}-{max_teams})")
+        print(f"{'='*60}\n")
+        
+        results = []
+        best_result = None
+        best_cost_per_location = float('inf')
+        optimal_teams = min_teams
+        
+        for num_teams in range(min_teams, max_teams + 1):
+            print(f"\n--- Testar {num_teams} team ---")
+            
+            # Hämta hemmabasconfig från self.config
+            allowed_cities = self.config.get('allowed_home_bases', None)
+            team_assignments = self.config.get('team_assignments', None)
+            custom_bases = self.config.get('custom_home_bases', None)
+            
+            # Skapa teams
+            teams = self.create_teams(
+                num_teams, 
+                allowed_cities=allowed_cities,
+                team_assignments=team_assignments,
+                custom_bases=custom_bases
+            )
+            
+            # Fördela och optimera
+            team_routes = self.assign_locations_to_teams(teams)
+            
+            if not team_routes:
+                continue
+            
+            # Beräkna totalkostnad
+            total_cost = sum(tr.total_cost for tr in team_routes)
+            total_days = max(tr.total_days for tr in team_routes)
+            cost_per_location = total_cost / len(self.locations) if self.locations else 0
+            
+            result = {
+                'num_teams': num_teams,
+                'teams': team_routes,
+                'total_cost': total_cost,
+                'total_days': total_days,
+                'cost_per_location': cost_per_location
+            }
+            
+            results.append(result)
+            
+            print(f"  Total kostnad: {total_cost:,.0f} kr")
+            print(f"  Kostnad per plats: {cost_per_location:,.0f} kr")
+            print(f"  Max dagar: {total_days}")
+            
+            # Uppdatera bästa resultat
+            if cost_per_location < best_cost_per_location:
+                best_cost_per_location = cost_per_location
+                best_result = result
+                optimal_teams = num_teams
+        
+        print(f"\n{'='*60}")
+        print(f"OPTIMALT: {optimal_teams} team med {best_cost_per_location:,.0f} kr/plats")
+        print(f"{'='*60}\n")
+        
+        return {
+            'optimal_teams': optimal_teams,
+            'best_result': best_result,
+            'results': results
+        }
 
 
 def run_optimization(df: pd.DataFrame, config: Dict, profile: Dict) -> Dict:
