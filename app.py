@@ -258,6 +258,17 @@ else:
             
             # Justerbar arbetstid per enhet
             st.markdown("**Arbetstid**")
+            
+            setup_time = st.number_input(
+                "Setup-tid på plats (minuter)",
+                min_value=0,
+                max_value=120,
+                value=profile['setup_time'],
+                step=5,
+                help="Fast tid som går åt på varje plats oavsett antal uttag (inklusive inställning, resa på området, etc.)"
+            )
+            st.caption(f"💡 {setup_time} min setup + tid per {profile['work_unit']}")
+            
             work_time_per_unit = st.number_input(
                 f"Minuter per {profile['work_unit']}",
                 min_value=1,
@@ -266,7 +277,7 @@ else:
                 step=1,
                 help=f"Tid det tar att migrera/serva en {profile['work_unit']}"
             )
-            st.caption(f"💡 {work_time_per_unit} min = {work_time_per_unit/60:.1f}h per {profile['work_unit']}")
+            st.caption(f"💡 Exempel: {setup_time} min + (10 uttag × {work_time_per_unit} min) = {setup_time + 10*work_time_per_unit} min totalt")
         
         with col2:
             st.markdown("**Transport & Logi**")
@@ -491,12 +502,15 @@ else:
         st.divider()
         st.markdown("#### 🏠 Hemmabashantering")
         
+        # Initiera variabler först
+        home_base_mode = 'auto'  # Standardvärde
+        allowed_home_bases = None
+        team_assignments = None
+        custom_home_bases = None
+        
         # Om weekend work mode är aktivt, visa info istället för val
         if weekend_work_mode:
             st.info("**Hemmabashantering är inaktiverat** - Göteborg Weekend Work Mode bestämmer att alla team börjar från Göteborg.")
-            allowed_home_bases = None
-            team_assignments = None
-            custom_home_bases = None
         else:
             # Hemmabasläge
             home_base_mode = st.radio(
@@ -510,10 +524,6 @@ else:
                 }[x],
                 help="Välj hur hemmabaser ska hanteras"
             )
-            
-            allowed_home_bases = None
-            team_assignments = None
-            custom_home_bases = None
             
             if home_base_mode == 'auto':
                 st.info("✅ Systemet väljer automatiskt optimala hemmabaser baserat på datadensitet")
@@ -544,7 +554,7 @@ else:
                             from optimizer import RouteOptimizer, Location
                             
                             # Skapa temporära locations för analys
-                            temp_config = {'setup_time': 10, 'work_time_per_unit': work_time_per_unit, 'team_size': team_size}
+                            temp_config = {'setup_time': setup_time, 'work_time_per_unit': work_time_per_unit, 'team_size': team_size}
                             temp_optimizer = RouteOptimizer(temp_config)
                             processed_data = temp_optimizer.load_data(df, profile)
                             locations = temp_optimizer.create_locations(processed_data, profile)
@@ -688,7 +698,7 @@ else:
                     'pause_time': pause_time,
                     'navigation_time': navigation_time,
                     'work_time_per_unit': work_time_per_unit,  # Använd user-defined värde
-                    'setup_time': profile['setup_time'],
+                    'setup_time': setup_time,  # Använd user-defined värde
                     'driving_speed': 80,
                     'weekend_work_mode': weekend_work_mode,  # NYTT: Weekend work mode
                     

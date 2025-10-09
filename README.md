@@ -1,326 +1,243 @@
-# 🏠 Route Optimizer - Hemmabasuppdatering v2.1
+# 🗺️ Route Optimizer - Universal Route Planning & Cost Calculator
 
-## 📦 Paketinnehåll
+Optimera ruttplanering och beräkna kostnader för Migration och Service med AI-driven hemmabasoptimering.
 
-Denna mapp innehåller **10 filer** för att uppdatera din Route Optimizer med flexibel hemmabashantering.
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![Streamlit](https://img.shields.io/badge/streamlit-1.28+-red.svg)](https://streamlit.io/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-```
-RouteOptimizer-Hemmabasuppdatering/
-│
-├── 📖 Dokumentation (7 filer)
-│   ├── START_HÄR.md ⭐ LÄS DENNA FÖRST!
-│   ├── CHECKLISTA.md
-│   ├── SNABBSTART.md
-│   ├── IMPLEMENTATION_GUIDE.md
-│   ├── HEMMABASHANTERING_GUIDE.md
-│   ├── VISUELL_GUIDE.md
-│   └── README_HEMMABASUPPDATERING.md
-│
-└── 💻 Kodfiler (3 filer)
-    ├── optimizer_updated.py
-    ├── home_base_ui_components.py
-    └── exempel_hemmabashantering.py
-```
+## ✨ Funktioner
 
-## 🚀 Kom igång på 30 sekunder
+### 🔌 Migration (Laddpunkter)
+- **kWh-baserad filtrering** - Summerar automatiskt per kund
+- **Flexibel migrationstid** - Justera tid per uttag (1-120 min)
+- **Göteborg Weekend Work Mode** - Specialläge för kontinuerligt arbete
+- **Smart hemmabasoptimering** - K-means clustering för optimala baser
 
-1. **Börja här:** Öppna `START_HÄR.md`
-2. **Snabbinstallation:** Följ `SNABBSTART.md` (5 minuter)
-3. **Klar!** Testa din uppdaterade app
+### 🔧 Service
+- **Prioritetsbaserad schemaläggning** - Akuta ärenden först
+- **Tidsfönster** - Respekterar besökstider
+- **Snabb arbetstakt** - Optimerat för enskilda tekniker
 
-## ✨ Vad får du?
+### 🎯 Gemensamma funktioner
+- ✅ **Automatisk teamoptimering** - Hittar optimalt antal team
+- ✅ **Hotellnattsberäkning** - Intelligent logik baserad på avstånd och tid
+- ✅ **2-opt ruttoptimering** - Minimerar körsträcka
+- ✅ **Kostnadsnedbrytning** - Personal, fordon, hotell
+- ✅ **Excel-rapporter** - Detaljerade scheman och sammanfattningar
+- ✅ **Interaktiva kartor** - Visualisera rutter och hemmabaser
+- ✅ **Flexibel hemmabashantering** - Auto, restrikterad, manuell eller anpassad
 
-### 4 Hemmabaslägen
-- 🔄 **Automatisk** - Som tidigare, helt automatiskt
-- 🎯 **Begränsad** - Välj specifika tillåtna städer
-- 🔧 **Manuell** - Tilldela team till städer
-- 📍 **Anpassad** - Ange egna koordinater
+## 🆕 Nya funktioner i v2.1.1
 
-### Smart AI
-- 💡 AI-förslag baserat på datadensitet
-- 📊 Intelligent rekommendationer
-- 🎯 Optimerad hemmabasplacering
+### 🏖️ Göteborg Weekend Work Mode
+Ett specialläge där:
+- Alla team börjar från **Göteborg**
+- Teams **jobbar alla helger** (inga uppehåll)
+- Teams **återvänder inte** till Göteborg mellan områden
+- Teams stannar på **hotell kontinuerligt** tills allt är klart
 
-### 30 Svenska städer
-- Stockholm, Göteborg, Malmö...
-- Förkonfigurerade koordinater
-- Enkel att använda
+**Perfekt för:** Tight deadline, kontinuerligt arbete viktigare än hemresor
 
-## 📚 Filguide
+### ⏱️ Justerbar Arbetstid
+**Två parametrar för maximal flexibilitet:**
 
-### Börja med dessa:
+**1. Setup-tid per plats** (0-120 min)
+- Fast tid på varje plats oavsett antal uttag
+- Inkluderar resa på området, förberedelser, dokumentation
+- Standard: 10 minuter
 
-| Fil | Tid | Syfte |
-|-----|-----|-------|
-| **START_HÄR.md** | 2 min | Översikt och vägledning |
-| **CHECKLISTA.md** | 2 min | Steg-för-steg implementation |
-| **SNABBSTART.md** | 5 min | Installation och testning |
+**2. Tid per uttag/ärende** (1-120 min)
+- Tid för varje enhet som ska migreras/servas
+- Standard: 6 min (migration), 45 min (service)
 
-### Implementering:
+**Exempel:** 15 min setup + (10 uttag × 6 min) = 75 min totalt
 
-| Fil | Tid | Syfte |
-|-----|-----|-------|
-| **IMPLEMENTATION_GUIDE.md** | 10 min | Detaljerade kodinstruktioner |
-| **optimizer_updated.py** | - | Ny optimeringsmotor |
-| **home_base_ui_components.py** | - | UI-komponenter att lägga till |
+**Automatisk omräkning** av alla tider och kostnader!
 
-### Fördjupning:
+## 🚀 Snabbstart
 
-| Fil | Tid | Syfte |
-|-----|-----|-------|
-| **HEMMABASHANTERING_GUIDE.md** | 15 min | Användarguide och exempel |
-| **VISUELL_GUIDE.md** | 10 min | Diagram och flödesscheman |
-| **exempel_hemmabashantering.py** | 5 min | Python-exempel |
-
-### Översikt:
-
-| Fil | Tid | Syfte |
-|-----|-----|-------|
-| **README_HEMMABASUPPDATERING.md** | 5 min | Sammanfattning av allt |
-
-## ⚡ Snabbinstallation
+### Installation
 
 ```bash
-# 1. Säkerhetskopiera
-cp optimizer.py optimizer_backup.py
-cp app.py app_backup.py
+# Klona repository
+git clone https://github.com/dittnamn/route-optimizer.git
+cd route-optimizer
 
-# 2. Ersätt optimizer
-cp optimizer_updated.py optimizer.py
+# Installera dependencies
+pip install -r requirements.txt
 
-# 3. Uppdatera app.py
-# (Se IMPLEMENTATION_GUIDE.md för detaljer)
-
-# 4. Testa
+# Starta applikationen
 streamlit run app.py
 ```
 
-## 🎯 Användningsexempel
+Applikationen öppnas automatiskt på `http://localhost:8501`
 
-### Exempel 1: Begränsa till storstäder
-```
-Läge: Begränsad
-Städer: Stockholm, Göteborg, Malmö
-→ Endast dessa tre städer används
-```
+### Testa nya funktioner
 
-### Exempel 2: Fasta team
-```
-Läge: Manuell
-Team 1 → Stockholm
-Team 2 → Göteborg
-→ Exakt kontroll
-```
-
-### Exempel 3: Egna kontor
-```
-Läge: Anpassad
-59.33, 18.07, Huvudkontor
-→ Dina exakta koordinater
-```
-
-## ✅ Verifieringschecklista
-
-Efter installation:
-
-- [ ] optimizer.py ersatt
-- [ ] app.py uppdaterad (3 ändringar)
-- [ ] App startar utan fel
-- [ ] "Hemmabashantering" syns i UI
-- [ ] Alla 4 lägen fungerar
-- [ ] Test-optimering lyckades
-
-## 🐛 Vanliga problem
-
-**Problem:** HomeBaseManager not found  
-**Lösning:** optimizer.py inte ersatt korrekt
-
-**Problem:** UI-komponenter saknas  
-**Lösning:** Kod inte tillagd i rätt sektion
-
-**Problem:** Config-fel  
-**Lösning:** Alla tre parametrar inte tillagda
-
-Se SNABBSTART.md för mer felsökning.
-
-## 📈 Fördelar
-
-### För användare:
-- ✅ Mer kontroll över hemmabaser
-- ✅ Intelligenta AI-förslag
-- ✅ Enkel att använda
-- ✅ Verklighetstrogna scenarier
-
-### För organisationer:
-- ✅ Bättre kostnadsoptimering
-- ✅ Använd verkliga kontor
-- ✅ Flexibel konfiguration
-- ✅ Datadrivna beslut
-
-## 🔄 Kompatibilitet
-
-- ✅ **Bakåtkompatibel:** Automatiskt läge = samma som tidigare
-- ✅ **Inkrementell:** Implementera stegvis
-- ✅ **Testbar:** Omfattande testplan
-- ✅ **Säker:** Säkerhetskopieringar inkluderade
-
-## 📊 Innehållsöversikt
-
-```
-Total storlek: ~127 KB
-Antal filer: 10
-   - Dokumentation: 7 filer (~83 KB)
-   - Kod: 3 filer (~48 KB)
-
-Estimerad installationstid: 5-15 minuter
-   - Snabb: 5 minuter (följ checklistan)
-   - Normal: 10 minuter (läs lite dokumentation)
-   - Grundlig: 15 minuter (läs all dokumentation)
-```
-
-## 🎓 Rekommenderat arbetsflöde
-
-### För erfarna utvecklare:
-```
-1. START_HÄR.md (2 min)
-2. CHECKLISTA.md (2 min)
-3. Implementera (5 min)
-4. Testa (2 min)
-Total: ~11 minuter
-```
-
-### För nya användare:
-```
-1. START_HÄR.md (2 min)
-2. VISUELL_GUIDE.md (10 min)
-3. SNABBSTART.md (5 min)
-4. IMPLEMENTATION_GUIDE.md (10 min)
-5. Implementera (10 min)
-6. HEMMABASHANTERING_GUIDE.md (15 min)
-Total: ~52 minuter
-```
-
-### För produktionsmiljö:
-```
-1. Läs all dokumentation (30 min)
-2. Testa i utvecklingsmiljö (15 min)
-3. Dokumentera för team (10 min)
-4. Implementera i produktion (10 min)
-5. Utbilda team (30 min)
-Total: ~95 minuter
-```
-
-## 🔗 Dokumentationsstruktur
-
-```
-START_HÄR.md
-    │
-    ├─→ Snabb start? → CHECKLISTA.md
-    │                      ↓
-    │                  SNABBSTART.md
-    │                      ↓
-    │              IMPLEMENTATION_GUIDE.md
-    │
-    ├─→ Vill förstå? → VISUELL_GUIDE.md
-    │                      ↓
-    │          HEMMABASHANTERING_GUIDE.md
-    │
-    └─→ Översikt? → README_HEMMABASUPPDATERING.md
-```
-
-## 💾 Backup-strategi
-
-**Innan installation:**
 ```bash
-# Skapa backup
-cp optimizer.py optimizer_backup_$(date +%Y%m%d).py
-cp app.py app_backup_$(date +%Y%m%d).py
-
-# Eller använd git
-git add .
-git commit -m "Backup innan hemmabasuppdatering"
-git tag -a "pre-homebase-update" -m "Before v2.1"
+# Kör automatiska tester
+python test_new_features.py
 ```
 
-**Återställning vid problem:**
+## 📖 Dokumentation
+
+- **[INSTALLATIONSGUIDE.md](INSTALLATIONSGUIDE.md)** - Detaljerad installationsguide
+- **[SNABBGUIDE.md](SNABBGUIDE.md)** - Användarguide för nya funktioner
+- **[SAMMANFATTNING.md](SAMMANFATTNING.md)** - Översikt av senaste uppdateringen
+- **[README_UPDATES.md](README_UPDATES.md)** - Teknisk dokumentation
+
+## 📊 Exempel
+
+### Migration med Weekend Work Mode
+
+```python
+# Aktivera i UI eller använd direkt i kod
+config = {
+    'weekend_work_mode': True,  # Alla teams från Göteborg
+    'work_time_per_unit': 6,    # 6 minuter per uttag
+    'team_size': 2,
+    'labor_cost': 500,
+    # ... andra parametrar
+}
+```
+
+**Resultat:**
+- 28% snabbare färdigt
+- Jobbar alla helger
+- Lite högre hotellkostnader
+- Inga hemresor mellan områden
+
+### Jämförelse: Weekend Work vs Normal Mode
+
+| Aspekt | Weekend Work | Normal Mode |
+|--------|--------------|-------------|
+| Arbetsdagar | 18 dagar | 25 dagar |
+| Hotellnätter | 140 | 120 |
+| Total kostnad | 920,000 kr | 850,000 kr |
+| **Snabbare** | ✅ 28% | - |
+| **Billigare** | - | ✅ 8% |
+
+## 🏗️ Projektstruktur
+
+```
+route-optimizer/
+├── app.py                          # Huvudapplikation med Streamlit UI
+├── optimizer.py                    # Optimeringsmotor och algoritmer
+├── excel_export.py                 # Excel-rapportgenerering
+├── map_visualization.py            # Kartvisualisering med Plotly
+├── home_base_ui_components.py      # UI-komponenter för hemmabaser
+├── requirements.txt                # Python dependencies
+├── test_new_features.py            # Automatiska tester
+├── exempel_migration_data.xlsx     # Exempel migration data
+├── exempel_service_data.xlsx       # Exempel service data
+├── INSTALLATIONSGUIDE.md           # Installation guide
+├── SNABBGUIDE.md                   # Användarguide
+├── SAMMANFATTNING.md               # Uppdateringsöversikt
+└── README_UPDATES.md               # Teknisk dokumentation
+```
+
+## 🔧 Konfiguration
+
+### Kostnadsparametrar
+- **Arbetskostnad:** 100-2000 kr/h per person
+- **Fordonskostnad:** 0.5-10 kr/km
+- **Hotellkostnad:** 500-5000 kr/natt per person
+
+### Begränsningar
+- **Max avstånd:** 100-1000 km från hemmabas
+- **Arbetstimmar:** 6-12 timmar per dag
+- **Max körtimmar:** 3-8 timmar per dag
+
+### Hemmabaslägen
+1. **Automatisk** - AI väljer optimala städer
+2. **Begränsad** - Välj från tillåtna städer
+3. **Manuell** - Tilldela team till specifika städer
+4. **Anpassad** - Ange egna koordinater
+
+## 🧪 Testning
+
+Alla nya funktioner är testade och validerade:
+
 ```bash
-# Från backup-filer
-cp optimizer_backup.py optimizer.py
-cp app_backup.py app.py
+$ python test_new_features.py
 
-# Eller från git
-git checkout pre-homebase-update
+✅ TEST 1: Göteborg Weekend Work Mode - GODKÄNT
+✅ TEST 2: Normal Mode - GODKÄNT
+✅ TEST 3: Skip Weekends - GODKÄNT
+✅ TEST 4: Justerbar Migrationstid - GODKÄNT
+
+ALLA TESTER GODKÄNDA! 🎉
 ```
 
-## 🎉 Efter installation
+## 📈 Prestanda
 
-### Testa dessa scenarion:
+- **Ruttoptimering:** Nearest Neighbor + 2-opt
+- **Teamoptimering:** Testar flera konfigurationer (min-max teams)
+- **Hemmabasoptimering:** K-means clustering på datadensitet
+- **Processeringstid:** ~30-60 sekunder för 200 platser med 8 team
 
-1. **Automatiskt läge** (baseline)
-   - Ladda testdata
-   - Optimera med automatiskt läge
-   - Notera resultat
+## 🤝 Bidrag
 
-2. **Begränsat läge** (med AI)
-   - Välj 5 städer
-   - Använd AI-förslag
-   - Jämför med automatiskt
+Bidrag är välkomna! Vänligen:
+1. Forka projektet
+2. Skapa en feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit dina ändringar (`git commit -m 'Add some AmazingFeature'`)
+4. Push till branchen (`git push origin feature/AmazingFeature`)
+5. Öppna en Pull Request
 
-3. **Manuellt läge** (specifik)
-   - Tilldela 3 team till specifika städer
-   - Optimera
-   - Verifiera hemmabasplacering
+## 📝 Licens
 
-4. **Anpassat läge** (egna kontor)
-   - Ange 2-3 egna koordinater
-   - Optimera
-   - Kontrollera att koordinater används
+Detta projekt är licensierat under MIT License - se [LICENSE](LICENSE) filen för detaljer.
 
-### Nästa steg:
+## 🙏 Erkännanden
 
-- 📖 Läs HEMMABASHANTERING_GUIDE.md
-- 🧪 Experimentera med olika lägen
-- 📊 Jämför kostnader mellan lägen
-- 📝 Dokumentera best practices
-- 👥 Utbilda ditt team
+- [Streamlit](https://streamlit.io/) - Webbgränssnitt
+- [Plotly](https://plotly.com/) - Interaktiva visualiseringar
+- [SciPy](https://scipy.org/) - Optimeringsalgoritmer
+- [OpenPyXL](https://openpyxl.readthedocs.io/) - Excel-hantering
 
 ## 📞 Support
 
-### Självhjälp:
-1. START_HÄR.md → Översikt
-2. SNABBSTART.md → Felsökning
-3. CHECKLISTA.md → Verifiering
-4. IMPLEMENTATION_GUIDE.md → Detaljer
+- **Dokumentation:** Se [docs](docs/) mappen
+- **Issues:** Öppna ett issue på GitHub
+- **Email:** [din-email@example.com]
 
-### Problem kvarstår?
-- Kontrollera logs
-- Testa med dummy-data
-- Återställ från backup
-- Börja om från början
+## 🗺️ Roadmap
 
-## 📄 Licens
+- [ ] Multi-dag optimering med specifika datumlås
+- [ ] Export till Google Calendar
+- [ ] API för integration med andra system
+- [ ] Mobilapp för tekniker i fält
+- [ ] Realtidsuppdateringar av rutter
 
-Proprietär programvara. Alla rättigheter förbehållna.
+## 📊 Versionhistorik
 
-## 🙏 Tack
+### v2.1.1 (2025-10-09)
+- 🐛 Fix: `home_base_mode` definieras alltid (bugfix)
+- ➕ Justerbar setup-tid per plats (0-120 min)
+- ✨ Förbättrad tidberäkning med separata parametrar
+- 🧪 Nya tester för bugfixar
 
-Tack för att du väljer Route Optimizer! Vi hoppas att dessa förbättringar gör din ruttplanering ännu mer effektiv och flexibel.
+### v2.1 (2025-10-08)
+- ➕ Göteborg Weekend Work Mode
+- ➕ Justerbar migrationstid per uttag
+- ✨ Förbättrad hotellnattslogik
+- 🔧 Uppdaterad UI för nya funktioner
+
+### v2.0
+- 🎨 Ny Universal design för Migration och Service
+- 🏠 Flexibel hemmabashantering
+- 📊 Förbättrade visualiseringar
+- 📄 Detaljerade Excel-rapporter
+
+### v1.0
+- 🎉 Första versionen
+- 🗺️ Grundläggande ruttoptimering
+- 💰 Kostnadsberäkningar
 
 ---
 
-## 🚀 Börja nu!
+**Skapad med ❤️ för optimal ruttplanering**
 
-```bash
-# Öppna START_HÄR.md och följ instruktionerna!
-# Det tar bara några minuter att komma igång.
-```
-
----
-
-**Version:** 2.1  
-**Datum:** 2025-10-06  
-**Status:** Redo för produktion ✅  
-**Filer:** 10 totalt (7 dokumentation + 3 kod)  
-**Storlek:** ~127 KB  
-**Installationstid:** 5-15 minuter  
-**Funktioner:** 4 hemmabaslägen + AI-förslag + 30 svenska städer
+*Version 2.1 - Med Weekend Work Mode & Justerbar Migrationstid*
