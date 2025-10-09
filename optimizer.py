@@ -714,8 +714,9 @@ class RouteOptimizer:
     
     def assign_locations_to_teams(self, teams: List[Team]) -> List[TeamRoute]:
         """
-        Fördelar platser till teams baserat på NÄRMASTE TEAM
-        Detta säkerställer att varje plats besöks av sitt närmaste team
+        Fördelar platser till teams
+        - Weekend Work Mode: Geografisk clustering från Göteborg
+        - Normal Mode: Närmaste team från respektive hemmabas
         """
         
         team_routes = []
@@ -723,54 +724,77 @@ class RouteOptimizer:
         # Skapa en dictionary för att hålla team-locations
         team_assignments = {team.id: [] for team in teams}
         
+        weekend_work_mode = self.config.get('weekend_work_mode', False)
+        
         print("\n" + "="*60)
-        print("TILLDELAR PLATSER TILL NÄRMASTE TEAM")
+        if weekend_work_mode:
+            print("GÖTEBORG WEEKEND WORK MODE - GEOGRAFISK FÖRDELNING")
+        else:
+            print("TILLDELAR PLATSER TILL NÄRMASTE TEAM")
         print("="*60)
         
-        # STEG 1: Tilldela varje plats till närmaste team
-        locations_outside_range = 0
-        
-        for location in self.locations:
-            # Hitta närmaste team inom max_distance
-            nearest_team = None
-            min_distance = float('inf')
+        # STEG 1: Tilldela platser till teams
+        if weekend_work_mode:
+            # WEEKEND WORK MODE: Använd K-means clustering för geografisk fördelning
+            from sklearn.cluster import KMeans
             
-            for team in teams:
-                distance = self.calculate_distance(
-                    team.home_base[0], team.home_base[1],
-                    location.latitude, location.longitude
-                )
+            # Skapa koordinatmatris
+            coords = np.array([[loc.latitude, loc.longitude] for loc in self.locations])
+            
+            # Kör K-means clustering
+            n_clusters = min(len(teams), len(self.locations))
+            if n_clusters > 0:
+                kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
+                cluster_labels = kmeans.fit_predict(coords)
                 
-                # Kontrollera max avstånd
-                max_dist = self.config.get('max_distance', 500)
-                if distance <= max_dist:
-                    if distance < min_distance:
-                        min_distance = distance
-                        nearest_team = team
+                # Tilldela varje kluster till ett team
+                for idx, location in enumerate(self.locations):
+                    cluster_id = cluster_labels[idx]
+                    team_id = (cluster_id % len(teams)) + 1  # Rotera mellan teams
+                    team_assignments[team_id].append(location)
+                
+                print(f"\n✅ Geografisk clustering: {len(self.locations)} platser fördelade i {n_clusters} kluster")
+        else:
+            # NORMAL MODE: Närmaste team från respektive hemmabas
+            locations_outside_range = 0
             
-            # Om ingen inom räckvidd, hitta absolut närmaste (relaxa regeln lite)
-            if not nearest_team:
-                locations_outside_range += 1
-                nearest_team = min(teams, key=lambda t: self.calculate_distance(
-                    t.home_base[0], t.home_base[1],
-                    location.latitude, location.longitude
-                ))
-                min_distance = self.calculate_distance(
-                    nearest_team.home_base[0], nearest_team.home_base[1],
-                    location.latitude, location.longitude
-                )
+            for location in self.locations:
+                # Hitta närmaste team inom max_distance
+                nearest_team = None
+                min_distance = float('inf')
+                
+                for team in teams:
+                    distance = self.calculate_distance(
+                        team.home_base[0], team.home_base[1],
+                        location.latitude, location.longitude
+                    )
+                    
+                    # Kontrollera max avstånd
+                    max_dist = self.config.get('max_distance', 500)
+                    if distance <= max_dist:
+                        if distance < min_distance:
+                            min_distance = distance
+                            nearest_team = team
+                
+                # Om ingen inom räckvidd, hitta absolut närmaste
+                if not nearest_team:
+                    locations_outside_range += 1
+                    nearest_team = min(teams, key=lambda t: self.calculate_distance(
+                        t.home_base[0], t.home_base[1],
+                        location.latitude, location.longitude
+                    ))
+                
+                # Tilldela platsen till närmaste team
+                team_assignments[nearest_team.id].append(location)
             
-            # Tilldela platsen till närmaste team
-            team_assignments[nearest_team.id].append(location)
-        
-        if locations_outside_range > 0:
-            print(f"⚠️ {locations_outside_range} platser utanför max_distance - tilldelade ändå till närmaste team")
+            if locations_outside_range > 0:
+                print(f"⚠️ {locations_outside_range} platser utanför max_distance - tilldelade ändå till närmaste team")
         
         print(f"\nFördelning av {len(self.locations)} platser:")
         for team in teams:
             count = len(team_assignments[team.id])
             if count > 0:
-                print(f"  {team.home_name:20s}: {count:3d} platser")
+                print(f"  Team {team.id} ({team.home_name}): {count:3d} platser")
         print("="*60 + "\n")
         
         # STEG 2: Optimera rutt för varje team
