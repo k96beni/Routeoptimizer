@@ -1,5 +1,5 @@
 """
-Route Optimizer Engine - Uppdaterad med flexibel hemmabashantering
+Route Optimizer Engine - Uppdaterad med Göteborg Weekend Work Mode
 Hanterar ruttoptimering, kostnadsberäkningar och schemaläggning
 """
 
@@ -324,9 +324,13 @@ class RouteOptimizer:
     
     def skip_weekends(self, dt: datetime) -> datetime:
         """
-        Hoppar över helger (lördag och söndag)
+        Hoppar över helger (lördag och söndag) OM INTE weekend_work_mode är aktiverat
         Om datumet är en lördag eller söndag, flytta till nästa måndag
         """
+        # Om weekend work mode är aktiverat, jobba alla dagar
+        if self.config.get('weekend_work_mode', False):
+            return dt
+        
         # weekday(): Måndag=0, Tisdag=1, ..., Lördag=5, Söndag=6
         while dt.weekday() in [5, 6]:  # Lördag eller Söndag
             dt = dt + timedelta(days=1)
@@ -428,6 +432,7 @@ class RouteOptimizer:
     def calculate_route_segments(self, route: List[Location], team: Team) -> List[RouteSegment]:
         """
         Beräknar detaljerade segment med tider för en rutt
+        UPPDATERAD: Stöd för weekend_work_mode där team jobbar alla helger och inte återvänder hem
         """
         if not route:
             return []
@@ -445,6 +450,7 @@ class RouteOptimizer:
         pause_time = self.config.get('pause_time', 15) / 60  # Konvertera till timmar
         navigation_time = self.config.get('navigation_time', 3) / 60  # Konvertera till timmar
         driving_speed = self.config.get('driving_speed', 80)  # km/h
+        weekend_work_mode = self.config.get('weekend_work_mode', False)
         
         daily_work_time = 0
         daily_drive_time = 0
@@ -474,55 +480,79 @@ class RouteOptimizer:
                 daily_work_time = 0
                 daily_drive_time = 0
                 
-                # Omberäkna körtid från hemmabas till denna plats
-                distance = self.calculate_distance(
-                    team.home_base[0], team.home_base[1],
-                    location.latitude, location.longitude
-                )
-                drive_time = distance / driving_speed
-                num_pauses = int(drive_time / 2)
-                total_drive_time = drive_time + (num_pauses * pause_time) + navigation_time
+                # I weekend_work_mode: fortsätt från nuvarande position (stannar på hotell)
+                # I normalt mode: åk från hemmabasen
+                if not weekend_work_mode:
+                    # Omberäkna körtid från hemmabas till denna plats
+                    distance = self.calculate_distance(
+                        team.home_base[0], team.home_base[1],
+                        location.latitude, location.longitude
+                    )
+                    drive_time = distance / driving_speed
+                    num_pauses = int(drive_time / 2)
+                    total_drive_time = drive_time + (num_pauses * pause_time) + navigation_time
             
             # Uppdatera tid
             arrival_time = current_time + timedelta(hours=total_drive_time)
             departure_time = arrival_time + timedelta(hours=location.work_time)
             
             # Bestäm om hotellnatt behövs
-            # Hotellnatt behövs om:
-            # 1. Det INTE är sista platsen OCH
-            # 2. Efter detta besök kan vi INTE åka hem till hemmabasen (för långt/sent)
             is_hotel = False
             
-            if idx < len(route) - 1:  # Inte sista platsen
-                # Beräkna avstånd hem från denna plats
-                distance_home = self.calculate_distance(
-                    location.latitude, location.longitude,
-                    team.home_base[0], team.home_base[1]
-                )
-                drive_time_home = distance_home / driving_speed
-                num_pauses_home = int(drive_time_home / 2)
-                total_drive_time_home = drive_time_home + (num_pauses_home * pause_time)
-                
-                # Kontrollera om nästa plats kräver ny dag
-                next_location = route[idx + 1]
-                distance_to_next = self.calculate_distance(
-                    location.latitude, location.longitude,
-                    next_location.latitude, next_location.longitude
-                )
-                drive_time_to_next = distance_to_next / driving_speed
-                num_pauses_next = int(drive_time_to_next / 2)
-                total_drive_time_to_next = drive_time_to_next + (num_pauses_next * pause_time) + navigation_time
-                
-                # Om nästa besök orsakar ny dag OCH vi är långt från hemmabasen = hotellnatt
-                would_need_new_day = (daily_work_time + location.work_time + next_location.work_time > work_hours or 
-                                     daily_drive_time + total_drive_time + total_drive_time_to_next > max_drive_hours)
-                
-                # Hotell behövs om vi måste starta ny dag OCH (vi är långt hemifrån ELLER har för lite tid att åka hem)
-                far_from_home = distance_home > 100  # km
-                late_in_day = daily_drive_time + total_drive_time + total_drive_time_home > max_drive_hours
-                
-                if would_need_new_day and (far_from_home or late_in_day):
-                    is_hotel = True
+            if weekend_work_mode:
+                # I weekend work mode: ALLTID hotell utom sista natten
+                # Teams återvänder inte hem förrän allt är klart
+                if idx < len(route) - 1:  # Inte sista platsen
+                    # Kontrollera om nästa plats kräver ny dag
+                    next_location = route[idx + 1]
+                    distance_to_next = self.calculate_distance(
+                        location.latitude, location.longitude,
+                        next_location.latitude, next_location.longitude
+                    )
+                    drive_time_to_next = distance_to_next / driving_speed
+                    num_pauses_next = int(drive_time_to_next / 2)
+                    total_drive_time_to_next = drive_time_to_next + (num_pauses_next * pause_time) + navigation_time
+                    
+                    # Om nästa besök orsakar ny dag = hotellnatt
+                    would_need_new_day = (daily_work_time + location.work_time + next_location.work_time > work_hours or 
+                                         daily_drive_time + total_drive_time + total_drive_time_to_next > max_drive_hours)
+                    
+                    if would_need_new_day:
+                        is_hotel = True
+            else:
+                # Normalt mode: Hotellnatt behövs om:
+                # 1. Det INTE är sista platsen OCH
+                # 2. Efter detta besök kan vi INTE åka hem till hemmabasen (för långt/sent)
+                if idx < len(route) - 1:  # Inte sista platsen
+                    # Beräkna avstånd hem från denna plats
+                    distance_home = self.calculate_distance(
+                        location.latitude, location.longitude,
+                        team.home_base[0], team.home_base[1]
+                    )
+                    drive_time_home = distance_home / driving_speed
+                    num_pauses_home = int(drive_time_home / 2)
+                    total_drive_time_home = drive_time_home + (num_pauses_home * pause_time)
+                    
+                    # Kontrollera om nästa plats kräver ny dag
+                    next_location = route[idx + 1]
+                    distance_to_next = self.calculate_distance(
+                        location.latitude, location.longitude,
+                        next_location.latitude, next_location.longitude
+                    )
+                    drive_time_to_next = distance_to_next / driving_speed
+                    num_pauses_next = int(drive_time_to_next / 2)
+                    total_drive_time_to_next = drive_time_to_next + (num_pauses_next * pause_time) + navigation_time
+                    
+                    # Om nästa besök orsakar ny dag OCH vi är långt från hemmabasen = hotellnatt
+                    would_need_new_day = (daily_work_time + location.work_time + next_location.work_time > work_hours or 
+                                         daily_drive_time + total_drive_time + total_drive_time_to_next > max_drive_hours)
+                    
+                    # Hotell behövs om vi måste starta ny dag OCH (vi är långt hemifrån ELLER har för lite tid att åka hem)
+                    far_from_home = distance_home > 100  # km
+                    late_in_day = daily_drive_time + total_drive_time + total_drive_time_home > max_drive_hours
+                    
+                    if would_need_new_day and (far_from_home or late_in_day):
+                        is_hotel = True
             
             # Skapa segment
             segment = RouteSegment(
@@ -579,6 +609,7 @@ class RouteOptimizer:
                     custom_bases: Optional[List[Tuple[float, float, str]]] = None) -> List[Team]:
         """
         Skapar team med flexibel hemmabashantering
+        UPPDATERAD: Om weekend_work_mode är aktivt, sätt ALLA teams till Göteborg
         
         Args:
             num_teams: Antal team att skapa
@@ -590,6 +621,22 @@ class RouteOptimizer:
             Lista med Team-objekt
         """
         
+        # Om weekend work mode är aktiverat, alla teams börjar i Göteborg
+        if self.config.get('weekend_work_mode', False):
+            goteborg = HomeBaseManager.get_city_by_name('Göteborg')
+            if goteborg:
+                teams = []
+                for i in range(1, num_teams + 1):
+                    team = Team(
+                        id=i,
+                        home_base=(goteborg[0], goteborg[1]),
+                        home_name=goteborg[2]
+                    )
+                    teams.append(team)
+                self.teams = teams
+                return teams
+        
+        # Normalt mode - fortsätt med befintlig logik
         # Om custom bases anges, använd dem först
         if custom_bases:
             home_bases = custom_bases.copy()
@@ -836,7 +883,8 @@ class RouteOptimizer:
                 'teams': team_routes,
                 'total_cost': total_cost,
                 'total_days': total_days,
-                'cost_per_location': cost_per_location
+                'cost_per_location': cost_per_location,
+                'home_bases': [(team.home_base[0], team.home_base[1], team.home_name) for team in teams]
             }
             
             results.append(result)
@@ -907,7 +955,8 @@ def run_optimization(df: pd.DataFrame, config: Dict, profile: Dict) -> Dict:
         'total_locations': len(locations),
         'cost_per_location': best_result['cost_per_location'],
         'all_team_results': optimization_result['results'],
-        'filtered_data': processed_data
+        'filtered_data': processed_data,
+        'best_result': best_result  # Inkludera hela best_result för att få home_bases
     }
     
     return result
